@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.mall.mapper.ProductPhoneModelMapper">
+
+    <insert id="insertBatch">
+        insert into product_phone_model (product_id, phone_model_id) values
+        <foreach collection="list" item="item" separator=",">
+            (#{item.productId}, #{item.phoneModelId})
+        </foreach>
+    </insert>
+
+    <delete id="deleteByProductIds">
+        delete from product_phone_model where product_id in
+        <foreach collection="productIds" item="productId" separator="," open="(" close=")">
+            #{productId}
+        </foreach>
+    </delete>
+
+    <select id="selectPhoneModelsByProductId" resultType="com.mall.entity.PhoneModel">
+        select pm.* from phone_model pm
+        inner join product_phone_model ppm on pm.id = ppm.phone_model_id
+        where ppm.product_id = #{productId}
+        order by pm.sort asc
+    </select>
+
+    <select id="selectByProductIds" resultType="com.mall.entity.ProductPhoneModel">
+        select product_id, phone_model_id
+        from product_phone_model
+        where product_id in
+        <foreach collection="productIds" item="productId" separator="," open="(" close=")">
+            #{productId}
+        </foreach>
+    </select>
+
+</mapper>

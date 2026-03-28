@@ -1,0 +1,102 @@
+server:
+  port: 8080
+
+spring:
+  profiles:
+    active: dev
+  config:
+    import: optional:classpath:application-dev.local.yml
+  main:
+    allow-circular-references: true
+  datasource:
+    druid:
+      driver-class-name: ${mall.datasource.driver-class-name}
+      url: jdbc:mysql://${mall.datasource.host}:${mall.datasource.port}/${mall.datasource.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true
+      username: ${mall.datasource.username}
+      password: ${mall.datasource.password}
+  redis:
+    host: ${mall.redis.host}
+    port: ${mall.redis.port}
+    database: ${mall.redis.database}
+    password: ${mall.redis.password}
+  rabbitmq:
+    host: ${mall.rabbitmq.host:localhost}
+    port: ${mall.rabbitmq.port:5672}
+    username: ${mall.rabbitmq.username:guest}
+    password: ${mall.rabbitmq.password:guest}
+    virtual-host: ${mall.rabbitmq.virtual-host:/}
+    listener:
+      simple:
+        acknowledge-mode: auto
+        prefetch: 10
+  cache:
+    type: redis
+
+mybatis:
+  #mapper配置文件
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.mall.entity
+  configuration:
+    #开启驼峰命名
+    map-underscore-to-camel-case: true
+
+logging:
+  level:
+    com:
+      mall:
+        mapper: debug
+        service: info
+        controller: info
+
+mall:
+  jwt:
+    # 设置jwt签名加密时使用的秘钥
+    admin-secret-key: ${MALL_JWT_ADMIN_SECRET_KEY:change-me-admin}
+    # 设置jwt过期时间
+    admin-ttl: 7200000
+    # 设置前端传递过来的令牌名称
+    admin-token-name: token
+
+    # 设置用户令牌加密时使用的秘钥
+    user-secret-key: ${MALL_JWT_USER_SECRET_KEY:change-me-user}
+    # 设置用户令牌过期时间
+    user-ttl: 7200000
+
+    # 设置用户令牌名称
+    user-token-name: authentication
+
+  wechat:
+    appid: ${mall.wechat.appid}
+    secret: ${mall.wechat.secret}
+    mchid: ${mall.wechat.mchid}
+    mch-serial-no: ${mall.wechat.mch-serial-no}
+    private-key-file-path: ${mall.wechat.private-key-file-path}
+    api-v3-key: ${mall.wechat.api-v3-key}
+    we-chat-pay-cert-file-path: ${mall.wechat.we-chat-pay-cert-file-path}
+    notify-url: ${mall.wechat.notify-url}
+    refund-notify-url: ${mall.wechat.refund-notify-url}
+
+
+  #设置阿里云OSS配置
+  alioss:
+    endpoint: ${mall.alioss.endpoint}
+    access-key-id: ${mall.alioss.access-key-id}
+    access-key-secret: ${mall.alioss.access-key-secret}
+    bucket-name: ${mall.alioss.bucket-name}
+
+  baidu:
+    ak: ${mall.baidu.ak}
+    url: ${mall.baidu.url}
+
+  #商家信息
+  shop:
+    address: ${mall.shop.address}
+
+  # SiliconFlow AI配置
+  ai:
+    siliconflow:
+      api-key: ${mall.ai.siliconflow.api-key}
+      base-url: ${mall.ai.siliconflow.base-url:https://api.siliconflow.cn}
+      model: ${mall.ai.siliconflow.model:deepseek-ai/DeepSeek-V3}
+      timeout: ${mall.ai.siliconflow.timeout:60}
+      enabled: ${mall.ai.siliconflow.enabled:true}

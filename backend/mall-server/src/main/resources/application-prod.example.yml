@@ -1,0 +1,86 @@
+server:
+  port: 8080
+
+spring:
+  profiles:
+    active: prod
+  main:
+    allow-circular-references: true
+  datasource:
+    druid:
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      url: jdbc:mysql://127.0.0.1:3306/mobile_retail_mall?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true
+      username: your_db_username
+      password: your_db_password
+  redis:
+    host: 127.0.0.1
+    port: 6379
+    database: 0
+    password: your_redis_password
+  rabbitmq:
+    host: 127.0.0.1
+    port: 5672
+    username: your_rabbitmq_username
+    password: your_rabbitmq_password
+    virtual-host: /
+    listener:
+      simple:
+        acknowledge-mode: auto
+        prefetch: 10
+  cache:
+    type: redis
+
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.mall.entity
+  configuration:
+    map-underscore-to-camel-case: true
+
+logging:
+  level:
+    com:
+      mall:
+        mapper: info
+        service: info
+        controller: info
+
+mall:
+  jwt:
+    admin-secret-key: replace-with-admin-secret
+    admin-ttl: 7200000
+    admin-token-name: token
+    user-secret-key: replace-with-user-secret
+    user-ttl: 7200000
+    user-token-name: authentication
+
+  wechat:
+    appid: your_wechat_appid
+    secret: your_wechat_secret
+    mchid: your_wechat_mchid
+    mch-serial-no: your_wechat_mch_serial_no
+    private-key-file-path: /path/to/apiclient_key.pem
+    api-v3-key: your_wechat_api_v3_key
+    we-chat-pay-cert-file-path: /path/to/wechatpay_certificate.pem
+    notify-url: https://your-domain.com/notify/paySuccess
+    refund-notify-url: https://your-domain.com/notify/refundSuccess
+
+  alioss:
+    endpoint: oss-cn-example.aliyuncs.com
+    access-key-id: your_aliyun_access_key_id
+    access-key-secret: your_aliyun_access_key_secret
+    bucket-name: your_bucket_name
+
+  baidu:
+    ak: your_baidu_map_ak
+    url: https://api.map.baidu.com
+
+  shop:
+    address: your_shop_address
+
+  ai:
+    siliconflow:
+      api-key: your_siliconflow_api_key
+      base-url: https://api.siliconflow.cn
+      model: deepseek-ai/DeepSeek-V3
+      timeout: 60
+      enabled: false

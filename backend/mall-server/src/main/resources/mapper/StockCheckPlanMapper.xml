@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.mall.mapper.StockCheckPlanMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        insert into stock_check_plan (plan_name, status, create_user, create_time, remark)
+        values (#{planName}, #{status}, #{createUser}, #{createTime}, #{remark})
+    </insert>
+
+    <update id="update">
+        update stock_check_plan
+        <set>
+            <if test="planName != null">
+                plan_name = #{planName},
+            </if>
+            <if test="status != null">
+                status = #{status},
+            </if>
+            <if test="completeTime != null">
+                complete_time = #{completeTime},
+            </if>
+            <if test="remark != null">
+                remark = #{remark},
+            </if>
+        </set>
+        where id = #{id}
+    </update>
+
+</mapper>

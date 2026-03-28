@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.mall.mapper.ProductSpecMapper">
+
+    <insert id="insertProductSpec">
+        insert into product_spec (product_id, spec_name, spec_value, spec_price, spec_stock) values
+        <foreach collection="productSpecs" item="productSpec" separator=",">
+            (#{productSpec.productId},#{productSpec.specName},#{productSpec.specValue},#{productSpec.specPrice},#{productSpec.specStock})
+        </foreach>
+    </insert>
+
+    <delete id="deleteByProductIds">
+        delete from product_spec where product_id in
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+    <select id="selectByProductIds" resultType="com.mall.entity.ProductSpec">
+        select * from product_spec where product_id in
+        <foreach collection="productIds" item="productId" separator="," open="(" close=")">
+            #{productId}
+        </foreach>
+    </select>
+
+</mapper>

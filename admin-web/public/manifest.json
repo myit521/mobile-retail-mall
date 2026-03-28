@@ -1,0 +1,9 @@
+﻿{
+  "name": "手机商城管理系统",
+  "short_name": "商城后台",
+  "icons": [],
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb"
+}

@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.mall.mapper.ReportMapper">
+
+    <!-- 商品销量排行查询 -->
+    <select id="selectProductSalesRanking" resultType="com.mall.vo.ProductSalesVO">
+        SELECT 
+            od.product_id AS productId,
+            od.name AS productName,
+            od.image AS image,
+            SUM(od.number) AS salesCount,
+            SUM(od.amount) AS salesAmount
+        FROM order_detail od
+        INNER JOIN orders o ON od.order_id = o.id
+        WHERE o.status = 5
+        <if test="begin != null">
+            AND o.order_time &gt;= #{begin}
+        </if>
+        <if test="end != null">
+            AND o.order_time &lt;= #{end}
+        </if>
+        GROUP BY od.product_id, od.name, od.image
+        ORDER BY salesCount DESC
+        <if test="limit != null">
+            LIMIT #{limit}
+        </if>
+    </select>
+
+    <!-- 营业额统计（已完成订单） -->
+    <select id="selectTurnoverByDate" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(amount), 0)
+        FROM orders
+        WHERE status = 5
+        <if test="begin != null">
+            AND order_time &gt;= #{begin}
+        </if>
+        <if test="end != null">
+            AND order_time &lt;= #{end}
+        </if>
+    </select>
+
+    <!-- 订单数统计 -->
+    <select id="selectOrderCountByDate" resultType="java.lang.Integer">
+        SELECT COUNT(*)
+        FROM orders
+        WHERE 1=1
+        <if test="begin != null">
+            AND order_time &gt;= #{begin}
+        </if>
+        <if test="end != null">
+            AND order_time &lt;= #{end}
+        </if>
+    </select>
+
+    <!-- 有效订单数统计（已完成） -->
+    <select id="selectValidOrderCountByDate" resultType="java.lang.Integer">
+        SELECT COUNT(*)
+        FROM orders
+        WHERE status = 5
+        <if test="begin != null">
+            AND order_time &gt;= #{begin}
+        </if>
+        <if test="end != null">
+            AND order_time &lt;= #{end}
+        </if>
+    </select>
+
+    <!-- 商品总数 -->
+    <select id="selectProductCount" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM product
+    </select>
+
+    <!-- 在售商品数 -->
+    <select id="selectOnSaleProductCount" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM product WHERE status = 1
+    </select>
+
+    <!-- 库存预警商品数 -->
+    <select id="selectLowStockProductCount" resultType="java.lang.Integer">
+        SELECT COUNT(*) 
+        FROM product 
+        WHERE status = 1 
+        AND stock &lt;= COALESCE(alert_threshold, 10)
+    </select>
+
+    <!-- 指定状态订单数 -->
+    <select id="selectOrderCountByStatus" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM orders WHERE status = #{status}
+    </select>
+
+</mapper>

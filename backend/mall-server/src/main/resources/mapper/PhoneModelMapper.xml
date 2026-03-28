@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.mall.mapper.PhoneModelMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        insert into phone_model (brand, model_name, sort, status, create_time, update_time, create_user, update_user)
+        values (#{brand}, #{modelName}, #{sort}, #{status}, #{createTime}, #{updateTime}, #{createUser}, #{updateUser})
+    </insert>
+
+    <update id="update">
+        update phone_model
+        <set>
+            <if test="brand != null">
+                brand = #{brand},
+            </if>
+            <if test="modelName != null">
+                model_name = #{modelName},
+            </if>
+            <if test="sort != null">
+                sort = #{sort},
+            </if>
+            <if test="status != null">
+                status = #{status},
+            </if>
+            <if test="updateTime != null">
+                update_time = #{updateTime},
+            </if>
+            <if test="updateUser != null">
+                update_user = #{updateUser},
+            </if>
+        </set>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteByIds">
+        delete from phone_model where id in
+        <foreach collection="ids" item="id" separator="," open="(" close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+    <select id="selectPage" resultType="com.mall.entity.PhoneModel">
+        select id, brand, model_name, sort, status, update_time from phone_model
+        <where>
+            <if test="brand != null and brand != ''">
+                and brand like concat('%', #{brand}, '%')
+            </if>
+            <if test="modelName != null and modelName != ''">
+                and model_name like concat('%', #{modelName}, '%')
+            </if>
+            <if test="status != null">
+                and status = #{status}
+            </if>
+        </where>
+        order by sort asc, update_time desc
+    </select>
+
+    <select id="selectByIds" resultType="com.mall.entity.PhoneModel">
+        select * from phone_model where id in
+        <foreach collection="ids" item="id" separator="," open="(" close=")">
+            #{id}
+        </foreach>
+    </select>
+
+</mapper>

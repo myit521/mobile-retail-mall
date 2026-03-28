@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.mall.mapper.MemoMapper">
+
+    <resultMap id="MemoResultMap" type="com.mall.entity.Memo">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="title" property="title"/>
+        <result column="content" property="content"/>
+        <result column="parsed_content" property="parsedContent"/>
+        <result column="priority" property="priority"/>
+        <result column="status" property="status"/>
+        <result column="due_date" property="dueDate"/>
+        <result column="remind_time" property="remindTime"/>
+        <result column="is_reminded" property="isReminded"/>
+        <result column="tags" property="tags"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <!-- 插入备忘录 -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO memo (
+            user_id, title, content, parsed_content, priority, status, 
+            due_date, remind_time, is_reminded, tags, create_time, update_time
+        ) VALUES (
+            #{userId}, #{title}, #{content}, #{parsedContent}, #{priority}, #{status},
+            #{dueDate}, #{remindTime}, #{isReminded}, #{tags}, #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <!-- 更新备忘录 -->
+    <update id="update">
+        UPDATE memo
+        <set>
+            <if test="title != null">title = #{title},</if>
+            <if test="content != null">content = #{content},</if>
+            <if test="parsedContent != null">parsed_content = #{parsedContent},</if>
+            <if test="priority != null">priority = #{priority},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="dueDate != null">due_date = #{dueDate},</if>
+            <if test="remindTime != null">remind_time = #{remindTime},</if>
+            <if test="isReminded != null">is_reminded = #{isReminded},</if>
+            <if test="tags != null">tags = #{tags},</if>
+            update_time = NOW()
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <!-- 根据ID查询 -->
+    <select id="getById" resultMap="MemoResultMap">
+        SELECT * FROM memo WHERE id = #{id}
+    </select>
+
+    <!-- 根据ID和用户ID查询 -->
+    <select id="getByIdAndUserId" resultMap="MemoResultMap">
+        SELECT * FROM memo WHERE id = #{id} AND user_id = #{userId}
+    </select>
+
+    <!-- 删除备忘录 -->
+    <delete id="deleteByIdAndUserId">
+        DELETE FROM memo WHERE id = #{id} AND user_id = #{userId}
+    </delete>
+
+    <!-- 分页查询 -->
+    <select id="pageQuery" resultMap="MemoResultMap">
+        SELECT * FROM memo
+        WHERE user_id = #{userId}
+        <if test="query.status != null">
+            AND status = #{query.status}
+        </if>
+        <if test="query.priority != null">
+            AND priority = #{query.priority}
+        </if>
+        <if test="query.keyword != null and query.keyword != ''">
+            AND (title LIKE CONCAT('%', #{query.keyword}, '%') 
+                OR content LIKE CONCAT('%', #{query.keyword}, '%'))
+        </if>
+        <if test="query.tag != null and query.tag != ''">
+            AND tags LIKE CONCAT('%', #{query.tag}, '%')
+        </if>
+        ORDER BY 
+            CASE WHEN status = 0 THEN 0 ELSE 1 END,
+            priority DESC,
+            due_date ASC,
+            create_time DESC
+    </select>
+
+    <!-- 查询需要提醒的备忘录 -->
+    <select id="selectNeedRemind" resultMap="MemoResultMap">
+        SELECT * FROM memo 
+        WHERE status IN (0, 1)
+        AND is_reminded = 0
+        AND remind_time IS NOT NULL
+        AND remind_time &lt;= #{now}
+    </select>
+
+    <!-- 批量更新提醒状态 -->
+    <update id="batchUpdateReminded">
+        UPDATE memo SET is_reminded = 1, update_time = NOW()
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <!-- 查询已过期的待处理备忘录 -->
+    <select id="selectOverdue" resultMap="MemoResultMap">
+        SELECT * FROM memo 
+        WHERE status = 0
+        AND due_date IS NOT NULL
+        AND due_date &lt; #{now}
+    </select>
+
+    <!-- 统计用户各状态备忘录数量 -->
+    <select id="countByUserIdAndStatus" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM memo 
+        WHERE user_id = #{userId}
+        <if test="status != null">
+            AND status = #{status}
+        </if>
+    </select>
+
+</mapper>

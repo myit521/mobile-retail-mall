@@ -1,0 +1,144 @@
+{
+  "pages": [{
+      "path": "pages/home/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "首页"
+      }
+    },
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "商品首页"
+      }
+    },
+    {
+      "path": "pages/order/index",
+      "style": {
+				"navigationStyle": "custom",
+        "navigationBarTitleText": "确认信息",
+        "enablePullDownRefresh": false,
+        "navigationBarBackgroundColor": "#333333"
+
+      }
+    },
+	{
+	  "path": "pages/details/index",
+	  "style": {
+			"navigationStyle": "custom",
+	    "navigationBarTitleText": "订单详情",
+	    "enablePullDownRefresh": false,
+	    "navigationBarBackgroundColor": "#333333"
+	
+	  }
+	},
+    {
+      "path": "pages/success/index",
+      "style": {
+        "navigationBarTitleText": "提交成功",
+        "enablePullDownRefresh": false,
+        "navigationBarBackgroundColor": "#333333"
+      }
+    },
+    {
+      "path": "pages/nonet/index",
+      "style": {
+        "navigationBarTitleText": "无网络"
+      }
+    }, {
+      "path": "pages/remark/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "备注信息",
+        "enablePullDownRefresh": false,
+        "navigationBarBackgroundColor": "#333333"
+      }
+    },
+    {
+      "path": "pages/my/my",
+      "style": {
+				"navigationStyle": "custom",
+        "navigationBarTitleText": "个人中心",
+        "enablePullDownRefresh": false,
+        "navigationBarBackgroundColor": "#2F6BFF"
+        // "navigationBarTextStyle": "black"
+      }
+    },
+    {
+      "path": "pages/historyOrder/historyOrder",
+      "style": {
+				"navigationStyle": "custom",
+        "navigationBarTitleText": "历史订单",
+        "enablePullDownRefresh": false,
+        "navigationBarBackgroundColor": "#333333"
+
+      }
+    },
+    {
+      "path": "pages/phoneModel/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "手机型号推荐",
+        "enablePullDownRefresh": false,
+        "navigationBarBackgroundColor": "#2F6BFF"
+      }
+    },
+    {
+      "path": "pages/search/index",
+      "style": {
+        "navigationBarTitleText": "商品搜索",
+        "enablePullDownRefresh": false,
+        "navigationBarBackgroundColor": "#2F6BFF"
+      }
+    }
+    ],
+  "globalStyle": {
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "零售商城",
+    "navigationBarBackgroundColor": "#2F6BFF",
+    // "navigationBarBackground": "#2F6BFF",
+    "backgroundColor": "#F8F8F8"
+  },
+  "tabBar": {
+    "color": "#7A7E83",
+    "selectedColor": "#2F6BFF",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/home/index",
+        "text": "首页",
+        "iconPath": "static/tab-home.png",
+        "selectedIconPath": "static/tab-home-active.png"
+      },
+      {
+        "pagePath": "pages/index/index",
+        "text": "商城",
+        "iconPath": "static/tab-mall.png",
+        "selectedIconPath": "static/tab-mall-active.png"
+      },
+      {
+        "pagePath": "pages/my/my",
+        "text": "我的",
+        "iconPath": "static/tab-my.png",
+        "selectedIconPath": "static/tab-my-active.png"
+      }
+    ]
+  },
+  "condition": { // 模式配置，仅开发期间生效
+    "current": 0, // 当前激活的模式(list 的索引项)
+    "list": [{
+      "name": "历史订单", // 模式名称
+      "path": "pages/historyOrder/historyOrder", // 启动页面，必选
+      "query": "" // 启动参数，在页面的onLoad函数里面得到
+    }]
+  }
+  // "easycom": {
+  // 		"autoscan": true,
+  // 		"custom": {
+  // 			// uni-ui 规则如下配置
+  // 			"^uni-(.*)": "@dcloudio/uni-ui/lib/uni-$1/uni-$1.vue"
+  // 		}
+  // 	}
+}

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.mall.mapper.StockAlertMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        insert into stock_alert (product_id, product_name, current_stock, alert_threshold,
+                                 alert_status, alert_time)
+        values (#{productId}, #{productName}, #{currentStock}, #{alertThreshold},
+                #{alertStatus}, #{alertTime})
+    </insert>
+
+    <update id="update">
+        update stock_alert
+        <set>
+            <if test="alertStatus != null">
+                alert_status = #{alertStatus},
+            </if>
+            <if test="handleTime != null">
+                handle_time = #{handleTime},
+            </if>
+            <if test="handleUser != null">
+                handle_user = #{handleUser},
+            </if>
+        </set>
+        where id = #{id}
+    </update>
+
+    <select id="selectPage" resultType="com.mall.vo.StockAlertVO">
+        select sa.id, sa.product_id, sa.product_name, sa.current_stock, sa.alert_threshold,
+               sa.alert_status, sa.alert_time, sa.handle_time,
+               e.name as handle_user_name
+        from stock_alert sa
+        left join employee e on sa.handle_user = e.id
+        <where>
+            <if test="alertStatus != null">
+                and sa.alert_status = #{alertStatus}
+            </if>
+        </where>
+        order by sa.alert_time desc
+    </select>
+
+</mapper>
