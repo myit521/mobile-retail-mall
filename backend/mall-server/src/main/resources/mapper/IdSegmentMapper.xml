@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.mall.mapper.IdSegmentMapper">
+
+    <select id="getByBizTag" resultType="com.mall.entity.IdSegment">
+        select biz_tag as bizTag,
+               max_id as maxId,
+               step,
+               update_time as updateTime
+        from id_segment
+        where biz_tag = #{bizTag}
+        limit 1
+    </select>
+
+    <insert id="insert">
+        insert into id_segment (biz_tag, max_id, step, update_time)
+        values (#{bizTag}, #{maxId}, #{step}, now())
+    </insert>
+
+    <update id="updateMaxId">
+        update id_segment
+        set max_id = max_id + step,
+            update_time = now()
+        where biz_tag = #{bizTag}
+    </update>
+
+</mapper>

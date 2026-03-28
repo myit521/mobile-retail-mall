@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.mall.mapper.PaymentCallbackLogMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        insert into payment_callback_log
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="outTradeNo != null">out_trade_no,</if>
+            <if test="transactionId != null">transaction_id,</if>
+            <if test="callbackType != null">callback_type,</if>
+            <if test="callbackStatus != null">callback_status,</if>
+            <if test="rawCallbackData != null">raw_callback_data,</if>
+            <if test="decryptedData != null">decrypted_data,</if>
+            <if test="errorMessage != null">error_message,</if>
+            <if test="handleCount != null">handle_count,</if>
+            <if test="callbackTime != null">callback_time,</if>
+            <if test="handleTime != null">handle_time,</if>
+            <if test="createTime != null">create_time,</if>
+            <if test="updateTime != null">update_time,</if>
+        </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="outTradeNo != null">#{outTradeNo},</if>
+            <if test="transactionId != null">#{transactionId},</if>
+            <if test="callbackType != null">#{callbackType},</if>
+            <if test="callbackStatus != null">#{callbackStatus},</if>
+            <if test="rawCallbackData != null">#{rawCallbackData},</if>
+            <if test="decryptedData != null">#{decryptedData},</if>
+            <if test="errorMessage != null">#{errorMessage},</if>
+            <if test="handleCount != null">#{handleCount},</if>
+            <if test="callbackTime != null">#{callbackTime},</if>
+            <if test="handleTime != null">#{handleTime},</if>
+            <if test="createTime != null">#{createTime},</if>
+            <if test="updateTime != null">#{updateTime},</if>
+        </trim>
+    </insert>
+
+    <select id="getByOutTradeNoAndTransactionId" resultType="com.mall.entity.PaymentCallbackLog">
+        select id, out_trade_no, transaction_id, callback_type, callback_status,
+               raw_callback_data, decrypted_data, error_message, handle_count,
+               callback_time, handle_time, create_time, update_time
+        from payment_callback_log
+        where out_trade_no = #{outTradeNo} and transaction_id = #{transactionId}
+    </select>
+
+    <select id="getLatestByOutTradeNo" resultType="com.mall.entity.PaymentCallbackLog">
+        select id, out_trade_no, transaction_id, callback_type, callback_status,
+               raw_callback_data, decrypted_data, error_message, handle_count,
+               callback_time, handle_time, create_time, update_time
+        from payment_callback_log
+        where out_trade_no = #{outTradeNo}
+        order by callback_time desc
+        limit 1
+    </select>
+
+    <update id="update">
+        update payment_callback_log
+        <set>
+            <if test="callbackStatus != null">callback_status = #{callbackStatus},</if>
+            <if test="rawCallbackData != null">raw_callback_data = #{rawCallbackData},</if>
+            <if test="decryptedData != null">decrypted_data = #{decryptedData},</if>
+            <if test="errorMessage != null">error_message = #{errorMessage},</if>
+            <if test="handleCount != null">handle_count = #{handleCount},</if>
+            <if test="callbackTime != null">callback_time = #{callbackTime},</if>
+            <if test="handleTime != null">handle_time = #{handleTime},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+        </set>
+        where id = #{id}
+    </update>
+
+</mapper>

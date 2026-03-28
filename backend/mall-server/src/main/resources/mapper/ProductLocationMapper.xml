@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.mall.mapper.ProductLocationMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        insert into product_location (product_id, shelf_code, layer_num, position_code, remark, create_time, update_time)
+        values (#{productId}, #{shelfCode}, #{layerNum}, #{positionCode}, #{remark}, #{createTime}, #{updateTime})
+    </insert>
+
+    <update id="update">
+        update product_location
+        <set>
+            <if test="shelfCode != null">
+                shelf_code = #{shelfCode},
+            </if>
+            <if test="layerNum != null">
+                layer_num = #{layerNum},
+            </if>
+            <if test="positionCode != null">
+                position_code = #{positionCode},
+            </if>
+            <if test="remark != null">
+                remark = #{remark},
+            </if>
+            update_time = #{updateTime},
+        </set>
+        where product_id = #{productId}
+    </update>
+
+    <select id="selectPage" resultType="com.mall.vo.ProductLocationVO">
+        select pl.id, pl.product_id, p.name as product_name, p.image as product_image,
+               pl.shelf_code, pl.layer_num, pl.position_code, pl.remark
+        from product_location pl
+        left join product p on pl.product_id = p.id
+        <where>
+            <if test="shelfCode != null and shelfCode != ''">
+                and pl.shelf_code like concat('%', #{shelfCode}, '%')
+            </if>
+        </where>
+        order by pl.shelf_code, pl.layer_num
+    </select>
+
+</mapper>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.mall.mapper.OrderDetailMapper">
+
+    <insert id="insertBatch" parameterType="list">
+        insert into order_detail
+        (name, order_id, product_id, spec_id, spec_info, number, amount, image)
+        values
+        <foreach collection="orderDetailList" item="od" separator=",">
+            (#{od.name}, #{od.orderId}, #{od.productId}, #{od.specId}, #{od.specInfo},
+            #{od.number}, #{od.amount}, #{od.image})
+        </foreach>
+    </insert>
+    <select id="selectByOrderIds" resultType="com.mall.entity.OrderDetail">
+        select id, name, image, order_id, product_id, spec_id, spec_info, number, amount
+        from order_detail where order_id in
+        <foreach collection="orderIds" item="id" separator="," open="(" close=")">
+            #{id}
+        </foreach>
+    </select>
+
+
+</mapper>

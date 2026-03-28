@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.mall.mapper.OrderMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        insert into orders
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="number != null">number,</if>
+            <if test="status != null">status,</if>
+            <if test="userId != null">user_id,</if>
+            <if test="orderTime != null">order_time,</if>
+            <if test="checkoutTime != null">checkout_time,</if>
+            <if test="payMethod != null">pay_method,</if>
+            <if test="payStatus != null">pay_status,</if>
+            <if test="amount != null">amount,</if>
+            <if test="remark != null">remark,</if>
+            <if test="userName != null">user_name,</if>
+            <if test="cancelReason != null">cancel_reason,</if>
+            <if test="rejectionReason != null">rejection_reason,</if>
+            <if test="cancelTime != null">cancel_time,</if>
+            <if test="tablewareNumber != null">tableware_number,</if>
+            <if test="tablewareStatus != null">tableware_status,</if>
+        </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="number != null">#{number},</if>
+            <if test="status != null">#{status},</if>
+            <if test="userId != null">#{userId},</if>
+            <if test="orderTime != null">#{orderTime},</if>
+            <if test="checkoutTime != null">#{checkoutTime},</if>
+            <if test="payMethod != null">#{payMethod},</if>
+            <if test="payStatus != null">#{payStatus},</if>
+            <if test="amount != null">#{amount},</if>
+            <if test="remark != null">#{remark},</if>
+            <if test="userName != null">#{userName},</if>
+            <if test="cancelReason != null">#{cancelReason},</if>
+            <if test="rejectionReason != null">#{rejectionReason},</if>
+            <if test="cancelTime != null">#{cancelTime},</if>
+            <if test="tablewareNumber != null">#{tablewareNumber},</if>
+            <if test="tablewareStatus != null">#{tablewareStatus},</if>
+        </trim>
+    </insert>
+    <update id="update">
+        update orders
+        <set>
+            <if test="status != null">status = #{status},</if>
+            <if test="checkoutTime != null">checkout_time = #{checkoutTime},</if>
+            <if test="payMethod != null">pay_method = #{payMethod},</if>
+            <if test="payStatus != null">pay_status = #{payStatus},</if>
+            <if test="amount != null">amount = #{amount},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="userName != null">user_name = #{userName},</if>
+            <if test="cancelReason != null">cancel_reason = #{cancelReason},</if>
+            <if test="rejectionReason != null">rejection_reason = #{rejectionReason},</if>
+            <if test="cancelTime != null">cancel_time = #{cancelTime},</if>
+            <if test="tablewareNumber != null">tableware_number = #{tablewareNumber},</if>
+            <if test="tablewareStatus != null">tableware_status = #{tablewareStatus},</if>
+        </set>
+        where id = #{id}
+    </update>
+    <select id="selectPageQuery" resultType="com.mall.entity.Orders">
+        select id, number, status, user_id, order_time, checkout_time,
+               pay_method, pay_status, amount, remark, user_name,
+               cancel_reason, rejection_reason, cancel_time
+        from orders
+        <where>
+            <if test="number != null and number != ''">and number = #{number}</if>
+            <if test="status != null">and status = #{status}</if>
+            <if test="userId != null">and user_id = #{userId}</if>
+            <if test="beginTime != null">and order_time &gt;= #{beginTime}</if>
+            <if test="endTime != null">and order_time &lt;= #{endTime}</if>
+        </where>
+        order by order_time desc
+    </select>
+
+    <select id="selectPageQuery4User" resultType="com.mall.entity.Orders">
+        select id, number, status, user_id, order_time, checkout_time,
+               pay_method, pay_status, amount, remark, user_name,
+               cancel_reason, rejection_reason, cancel_time
+        from orders
+        <where>
+            <if test="userId != null">and user_id = #{userId}</if>
+            <if test="status != null and status == 1">and status in (1, 2, 3, 4)</if>
+            <if test="status != null and status != 1">and status = #{status}</if>
+        </where>
+        order by order_time desc
+    </select>
+
+</mapper>

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.mall.mapper.StockLogMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        insert into stock_log (product_id, change_type, change_quantity, before_stock, after_stock,
+                               order_id, remark, operator_id, create_time)
+        values (#{productId}, #{changeType}, #{changeQuantity}, #{beforeStock}, #{afterStock},
+                #{orderId}, #{remark}, #{operatorId}, #{createTime})
+    </insert>
+
+    <select id="selectPage" resultType="com.mall.vo.StockLogVO">
+        select sl.id, sl.product_id, p.name as product_name,
+               sl.change_type, sl.change_quantity, sl.before_stock, sl.after_stock,
+               sl.order_id, sl.remark, sl.operator_id, e.name as operator_name,
+               sl.create_time
+        from stock_log sl
+        left join product p on sl.product_id = p.id
+        left join employee e on sl.operator_id = e.id
+        <where>
+            <if test="productId != null">
+                and sl.product_id = #{productId}
+            </if>
+            <if test="changeType != null">
+                and sl.change_type = #{changeType}
+            </if>
+            <if test="beginTime != null">
+                and sl.create_time &gt;= #{beginTime}
+            </if>
+            <if test="endTime != null">
+                and sl.create_time &lt;= #{endTime}
+            </if>
+        </where>
+        order by sl.create_time desc
+    </select>
+
+</mapper>

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.mall.mapper.ShoppingCartMapper">
+    <insert id="insert">
+        insert into shopping_cart
+        <set>
+            <if test="name != null">
+                name = #{name},
+            </if>
+            <if test="productId != null">
+                product_id = #{productId},
+            </if>
+            <if test="specInfo != null">
+                spec_info = #{specInfo},
+            </if>
+            <if test="number != null">
+                number = #{number},
+            </if>
+            <if test="amount != null">
+                amount = #{amount},
+            </if>
+            <if test="image != null">
+                image = #{image},
+            </if>
+            <if test="userId != null">
+                user_id = #{userId},
+            </if>
+            <if test="createTime != null">
+                create_time = #{createTime},
+            </if>
+        </set>
+    </insert>
+    <update id="update">
+            update shopping_cart
+            <set>
+                <if test="specInfo != null">
+                    spec_info = #{specInfo},
+                </if>
+                <if test="number != null">
+                    number = #{number},
+                </if>
+            </set>
+        where id = #{id}
+    </update>
+<!--    查询-->
+    <select id="selectlist" resultType="com.mall.entity.ShoppingCart">
+        select id, name, image, user_id, product_id, spec_info, number, amount, create_time
+        from shopping_cart
+        <where>
+            <if test="userId != null">
+                and user_id = #{userId}
+            </if>
+            <if test="productId != null">
+                and product_id = #{productId}
+            </if>
+            <if test="specInfo != null">
+                and spec_info = #{specInfo}
+            </if>
+        </where>
+        order by create_time desc
+    </select>
+</mapper>
