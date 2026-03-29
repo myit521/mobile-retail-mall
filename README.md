@@ -203,7 +203,7 @@ mobile-retail-mall/
 - Maven 3.8+
 - MySQL 8.x
 - Redis
-- RabbitMQ（如果要验证消息链路）
+- RabbitMQ
 - Node.js 16+
 - npm
 - HBuilderX
