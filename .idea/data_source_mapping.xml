@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="DataSourcePerFileMappings">
+    <file url="file://$PROJECT_DIR$/sky-take-out/sky-server/src/main/java/com/sky/mapper/CategoryMapper.java" value="6dd60de9-0cf9-41d3-b267-8f797b109954" />
+    <file url="file://$PROJECT_DIR$/sky-take-out/sky-server/src/main/java/com/sky/mapper/EmployeeMapper.java" value="6dd60de9-0cf9-41d3-b267-8f797b109954" />
+    <file url="file://$PROJECT_DIR$/sky-take-out/sky-server/src/main/java/com/sky/mapper/OrderDetailMapper.java" value="6dd60de9-0cf9-41d3-b267-8f797b109954" />
+    <file url="file://$PROJECT_DIR$/sky-take-out/sky-server/src/main/java/com/sky/mapper/OrderMapper.java" value="6dd60de9-0cf9-41d3-b267-8f797b109954" />
+    <file url="file://$PROJECT_DIR$/sky-take-out/sky-server/src/main/java/com/sky/mapper/UserMapper.java" value="6dd60de9-0cf9-41d3-b267-8f797b109954" />
+    <file url="file://$PROJECT_DIR$/sky-take-out/sky-server/src/main/resources/mapper/EmployeeMapper.xml" value="6dd60de9-0cf9-41d3-b267-8f797b109954" />
+  </component>
+</project>

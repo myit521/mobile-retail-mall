@@ -1,0 +1,33 @@
+spring:
+  task:
+    scheduling:
+      enabled: false
+
+sky:
+  wechat:
+    appid: test-appid
+    secret: test-secret
+    mchid: test-mchid
+    mch-serial-no: test-serial
+    private-key-file-path: test-private-key
+    api-v3-key: test-api-v3-key
+    we-chat-pay-cert-file-path: test-cert
+    notify-url: http://localhost/test-notify
+    refund-notify-url: http://localhost/test-refund-notify
+  alioss:
+    endpoint: http://localhost
+    access-key-id: test-access-key
+    access-key-secret: test-access-secret
+    bucket-name: test-bucket
+  baidu:
+    ak: test-ak
+    url: http://localhost
+  shop:
+    address: test-address
+  ai:
+    siliconflow:
+      api-key: test-api-key
+      base-url: http://localhost
+      model: test-model
+      timeout: 1
+      enabled: false

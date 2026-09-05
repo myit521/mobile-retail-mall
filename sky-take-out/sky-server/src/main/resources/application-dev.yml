@@ -1,0 +1,47 @@
+sky:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    host: ${MYSQL_HOST:localhost}
+    port: ${MYSQL_PORT:3306}
+    database: ${MYSQL_DATABASE:sky_take_out}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:}
+
+  wechat:
+    appid: ${WECHAT_APP_ID:}
+    secret: ${WECHAT_APP_SECRET:}
+    mchid: ${WECHAT_MCH_ID:}
+    mch-serial-no: ${WECHAT_MCH_SERIAL_NO:}
+    private-key-file-path: ${WECHAT_PRIVATE_KEY_FILE:}
+    api-v3-key: ${WECHAT_API_V3_KEY:}
+    we-chat-pay-cert-file-path: ${WECHAT_PAY_CERT_FILE:}
+    notify-url: ${WECHAT_NOTIFY_URL:}
+    refund-notify-url: ${WECHAT_REFUND_NOTIFY_URL:}
+
+  # Alibaba Cloud OSS
+  alioss:
+    endpoint: ${ALIYUN_OSS_ENDPOINT:oss-cn-beijing.aliyuncs.com}
+    access-key-id: ${ALIYUN_OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${ALIYUN_OSS_ACCESS_KEY_SECRET:}
+    bucket-name: ${ALIYUN_OSS_BUCKET_NAME:}
+
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    database: ${REDIS_DATABASE:10}
+    password: ${REDIS_PASSWORD:}
+
+  baidu:
+    ak: ${BAIDU_MAP_AK:}
+    url: https://api.map.baidu.com/geocoding/v3/
+
+  shop:
+    address: ${SHOP_ADDRESS:北京市海淀区上地十街10号}
+
+  ai:
+    siliconflow:
+      api-key: ${SILICONFLOW_API_KEY:}
+      base-url: ${SILICONFLOW_BASE_URL:https://api.siliconflow.cn}
+      model: ${SILICONFLOW_MODEL:deepseek-ai/DeepSeek-V3}
+      timeout: ${SILICONFLOW_TIMEOUT:60}
+      enabled: ${SILICONFLOW_ENABLED:false}

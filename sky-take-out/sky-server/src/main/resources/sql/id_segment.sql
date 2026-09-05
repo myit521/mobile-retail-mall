@@ -1,0 +1,12 @@
+-- 号段表
+CREATE TABLE IF NOT EXISTS id_segment (
+  biz_tag VARCHAR(64) NOT NULL COMMENT '业务标识',
+  max_id BIGINT NOT NULL COMMENT '当前最大ID',
+  step INT NOT NULL COMMENT '号段步长',
+  update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (biz_tag)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='号段表';
+
+INSERT INTO id_segment (biz_tag, max_id, step)
+VALUES ('order', 0, 1000)
+ON DUPLICATE KEY UPDATE biz_tag = biz_tag;

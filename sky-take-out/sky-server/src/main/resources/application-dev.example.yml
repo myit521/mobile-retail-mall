@@ -1,0 +1,46 @@
+sky:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    host: localhost
+    port: 3306
+    database: sky_take_out
+    username: root
+    password: your-password
+
+  wechat:
+    appid: your-appid
+    secret: your-secret
+    mchid: your-mchid
+    mch-serial-no: your-mch-serial-no
+    private-key-file-path: your-private-key-path
+    api-v3-key: your-api-v3-key
+    we-chat-pay-cert-file-path: your-pay-cert-path
+    notify-url: your-notify-url
+    refund-notify-url: your-refund-notify-url
+
+  alioss:
+    endpoint: oss-cn-beijing.aliyuncs.com
+    access-key-id: your-access-key-id
+    access-key-secret: your-access-key-secret
+    bucket-name: your-bucket-name
+
+  redis:
+    host: localhost
+    port: 6379
+    database: 10
+    password: your-redis-password
+
+  baidu:
+    ak: your-baidu-ak
+    url: https://api.map.baidu.com/geocoding/v3/?
+
+  shop:
+    address: your-shop-address
+
+  ai:
+    siliconflow:
+      api-key: your-siliconflow-api-key
+      base-url: https://api.siliconflow.cn
+      model: deepseek-ai/DeepSeek-V3
+      timeout: 60
+      enabled: true

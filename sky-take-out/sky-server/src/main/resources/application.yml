@@ -1,0 +1,108 @@
+server:
+  port: 8080
+
+spring:
+  profiles:
+    active: dev
+  config:
+    import: optional:classpath:application-dev.local.yml
+  main:
+    allow-circular-references: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 1
+    validate-on-migrate: true
+  datasource:
+    druid:
+      driver-class-name: ${sky.datasource.driver-class-name}
+      url: jdbc:mysql://${sky.datasource.host}:${sky.datasource.port}/${sky.datasource.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true
+      username: ${sky.datasource.username}
+      password: ${sky.datasource.password}
+  redis:
+    host: ${sky.redis.host}
+    port: ${sky.redis.port}
+    database: ${sky.redis.database}
+    password: ${sky.redis.password}
+  rabbitmq:
+    host: ${sky.rabbitmq.host:localhost}
+    port: ${sky.rabbitmq.port:5672}
+    username: ${sky.rabbitmq.username:guest}
+    password: ${sky.rabbitmq.password:guest}
+    virtual-host: ${sky.rabbitmq.virtual-host:/}
+    listener:
+      simple:
+        acknowledge-mode: auto
+        prefetch: 10
+  cache:
+    type: redis
+
+mybatis:
+  #mapper配置文件
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.sky.entity
+  configuration:
+    #开启驼峰命名
+    map-underscore-to-camel-case: true
+
+logging:
+  level:
+    com:
+      sky:
+        mapper: debug
+        service: info
+        controller: info
+
+sky:
+  jwt:
+    # 设置jwt签名加密时使用的秘钥
+    admin-secret-key: ${SKY_JWT_ADMIN_SECRET_KEY:change-me-admin}
+    # 设置jwt过期时间
+    admin-ttl: 7200000
+    # 设置前端传递过来的令牌名称
+    admin-token-name: token
+
+    # 设置用户令牌加密时使用的秘钥
+    user-secret-key: ${SKY_JWT_USER_SECRET_KEY:change-me-user}
+    # 设置用户令牌过期时间
+    user-ttl: 7200000
+
+    # 设置用户令牌名称
+    user-token-name: authentication
+
+  wechat:
+    appid: ${sky.wechat.appid}
+    secret: ${sky.wechat.secret}
+    mchid: ${sky.wechat.mchid}
+    mch-serial-no: ${sky.wechat.mch-serial-no}
+    private-key-file-path: ${sky.wechat.private-key-file-path}
+    api-v3-key: ${sky.wechat.api-v3-key}
+    we-chat-pay-cert-file-path: ${sky.wechat.we-chat-pay-cert-file-path}
+    notify-url: ${sky.wechat.notify-url}
+    refund-notify-url: ${sky.wechat.refund-notify-url}
+
+
+  #设置阿里云OSS配置
+  alioss:
+    endpoint: ${sky.alioss.endpoint}
+    access-key-id: ${sky.alioss.access-key-id}
+    access-key-secret: ${sky.alioss.access-key-secret}
+    bucket-name: ${sky.alioss.bucket-name}
+
+  baidu:
+    ak: ${sky.baidu.ak}
+    url: ${sky.baidu.url}
+
+  #商家信息
+  shop:
+    address: ${sky.shop.address}
+
+  # SiliconFlow AI配置
+  ai:
+    siliconflow:
+      api-key: ${sky.ai.siliconflow.api-key}
+      base-url: ${sky.ai.siliconflow.base-url:https://api.siliconflow.cn}
+      model: ${sky.ai.siliconflow.model:deepseek-ai/DeepSeek-V3}
+      timeout: ${sky.ai.siliconflow.timeout:60}
+      enabled: ${sky.ai.siliconflow.enabled:true}
