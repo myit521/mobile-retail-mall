@@ -1,0 +1,13 @@
+.git
+.github
+.idea
+.vscode
+**/target
+**/*.log
+performance/results
+project-rjwm-weixin-uniapp-develop-wsy
+docs
+scripts
+monitoring
+compose*.yml
+.env*

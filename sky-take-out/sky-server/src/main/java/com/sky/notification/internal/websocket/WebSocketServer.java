@@ -1,86 +1,80 @@
 package com.sky.notification.internal.websocket;
 
-import com.sky.notification.api.OrderNotificationPort;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import javax.websocket.*;
-import javax.websocket.server.PathParam;
 import javax.websocket.server.ServerEndpoint;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Optional;
 
-@Component
-@ServerEndpoint("/ws/{sid}")
+@ServerEndpoint("/ws")
 @Slf4j
-public class WebSocketServer implements OrderNotificationPort {
-    //存放会话对象
-    private static Map<String, Session> sessionMap =new HashMap();
+public class WebSocketServer {
+    private static volatile Configuration configuration;
+
+    public static Configuration configure(WebSocketSessionRegistry registry, WebSocketTicketService tickets) {
+        Configuration installed = new Configuration(registry, tickets);
+        configuration = installed;
+        return installed;
+    }
+
+    public static void clearConfiguration(Configuration installed) {
+        if (configuration == installed) configuration = null;
+    }
+
+    public static void clearConfiguration() { configuration = null; }
     
     @OnOpen
-    public void onOpen(Session session, @PathParam("sid") String sid) {
-        log.info("WebSocket连接建立，客户端ID：{}", sid);
-        sessionMap.put(sid, session);
+    public void onOpen(Session session) {
+        Configuration current = configuration;
+        String ticket = first(session, "ticket");
+        Optional<WebSocketPrincipal> principal = current == null ? Optional.empty() : current.tickets.consume(ticket);
+        if (principal.isEmpty()) {
+            closeUnauthorized(session);
+            return;
+        }
+        current.sessions.open(principal.get(), session);
+        log.info("WebSocket connection established, clientId={}", principal.get().clientId());
     }
     
     @OnMessage
-    public void onMessage(String message, @PathParam("sid") String sid) {
+    public void onMessage(String message) {
         // 收到消息时的处理
     }
     
     @OnClose
-    public void onClose(@PathParam("sid") String sid) {
-        log.info("WebSocket连接关闭，客户端ID：{}", sid);
-        sessionMap.remove(sid);
+    public void onClose(Session session) {
+        Configuration current = configuration;
+        if (current != null) current.sessions.close(session);
+        log.info("WebSocket connection closed");
     }
     
     @OnError
     public void onError(Session session, Throwable error) {
-        log.error("WebSocket发生错误", error);
+        Configuration current = configuration;
+        if (current != null) current.sessions.close(session);
+        log.warn("WebSocket connection error, errorType={}", error.getClass().getSimpleName());
     }
-    /**
-     * 发送消息给指定客户端
-     * @param message 消息内容
-     * @param sid 客户端ID
-     */
-    public static void sendMessage(String message, String sid) {
-        Session session = sessionMap.get(sid);
-        if (session != null && session.isOpen()) {
-            try {
-                session.getBasicRemote().sendText(message);
-                log.info("发送消息给客户端 {}：{}", sid, message);
-            } catch (Exception e) {
-                log.error("发送消息失败，客户端ID：{}", sid, e);
-            }
-        } else {
-            log.warn("客户端 {} 不存在或连接已关闭", sid);
-        }
-    }
-    /**
-     * 群发消息给所有客户端
-     * @param message 消息内容v
-     */
-    public static void sendMessage(String message) {
-        log.info("群发消息给 {} 个客户端：{}", sessionMap.size(), message);
-        for (Map.Entry<String, Session> entry : sessionMap.entrySet()) {
-            Session session = entry.getValue();
-            if (session != null && session.isOpen()) {
-                try {
-                    session.getBasicRemote().sendText(message);
-                } catch (Exception e) {
-                    log.error("群发消息失败，客户端ID：{}", entry.getKey(), e);
-                }
-            }
+
+    private void closeUnauthorized(Session session) {
+        try {
+            session.close(new CloseReason(CloseReason.CloseCodes.VIOLATED_POLICY, "authentication required"));
+        } catch (Exception closeFailure) {
+            log.warn("Unable to close rejected WebSocket, errorType={}", closeFailure.getClass().getSimpleName());
         }
     }
 
-    @Override
-    public void broadcast(String message) {
-        sendMessage(message);
+    private String first(Session session, String name) {
+        java.util.List<String> values = session.getRequestParameterMap().get(name);
+        return values == null || values.isEmpty() ? null : values.get(0);
     }
 
-    @Override
-    public void sendTo(String message, String clientId) {
-        sendMessage(message, clientId);
+    public static final class Configuration {
+        private final WebSocketSessionRegistry sessions;
+        private final WebSocketTicketService tickets;
+        private Configuration(WebSocketSessionRegistry sessions, WebSocketTicketService tickets) {
+            this.sessions = sessions;
+            this.tickets = tickets;
+        }
     }
+
  }

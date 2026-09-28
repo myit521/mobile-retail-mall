@@ -3,12 +3,15 @@ package com.sky.payment.internal.persistence;
 import com.sky.entity.PaymentCallbackLog;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 
 /**
  * 支付回调日志 Mapper 接口
  */
 @Mapper
 public interface PaymentCallbackLogMapper {
+    @Select("select * from payment_callback_log where transaction_id = #{transactionId} lock in share mode")
+    PaymentCallbackLog getByTransactionIdForShare(String transactionId);
     
     /**
      * 插入回调日志

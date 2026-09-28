@@ -17,6 +17,7 @@ import com.sky.inventory.internal.persistence.StockCheckPlanMapper;
 import com.sky.inventory.internal.persistence.StockCheckRecordMapper;
 import com.sky.inventory.internal.persistence.StockLogMapper;
 import com.sky.result.PageResult;
+import com.sky.observability.BusinessMetrics;
 import com.sky.vo.StockAlertVO;
 import com.sky.vo.StockLogVO;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,7 @@ import java.util.List;
 @Service
 @Slf4j
 public class StockServiceImpl implements InventoryService {
+    private static final String ORDER_CLOSED_ACTION = "ORDER_CLOSED";
 
     @Autowired
     private InventoryProductMapper productMapper;
@@ -41,6 +43,8 @@ public class StockServiceImpl implements InventoryService {
     private StockCheckPlanMapper stockCheckPlanMapper;
     @Autowired
     private StockCheckRecordMapper stockCheckRecordMapper;
+    @Autowired(required = false)
+    private BusinessMetrics metrics;
 
     /**
      * 下单时扣减库存（乐观锁防超卖）
@@ -51,16 +55,19 @@ public class StockServiceImpl implements InventoryService {
         for (OrderDetail detail : orderDetails) {
             Long productId = detail.getProductId();
             Integer quantity = detail.getNumber();
+            validateQuantity(quantity);
 
             // 查询当前库存（用于日志记录）
             Product product = productMapper.selectProductById(productId);
             if (product == null) {
+                if (metrics != null) metrics.stockFailure(BusinessMetrics.StockOperation.DEDUCT);
                 throw new BaseException(MessageConstant.STOCK_PRODUCT_NOT_FOUND);
             }
 
             // 乐观锁扣减，WHERE stock >= quantity
-            int rows = productMapper.deductStock(productId, quantity);
+            int rows = productMapper.deductIfAvailable(productId, quantity);
             if (rows == 0) {
+                if (metrics != null) metrics.stockFailure(BusinessMetrics.StockOperation.DEDUCT);
                 throw new BaseException(product.getName() + MessageConstant.STOCK_NOT_ENOUGH);
             }
 
@@ -84,13 +91,22 @@ public class StockServiceImpl implements InventoryService {
      * 取消/拒单/超时归还库存
      */
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void returnStock(Long orderId, List<OrderDetail> orderDetails) {
         if (orderDetails == null || orderDetails.isEmpty()) {
             log.warn("订单 {} 无明细，跳过库存归还", orderId);
             return;
         }
 
+        for (OrderDetail detail : orderDetails) {
+            validateQuantity(detail.getNumber());
+        }
+        if (productMapper.releaseOnce(orderId, ORDER_CLOSED_ACTION) == 0) {
+            log.info("订单 {} 库存已归还，跳过重复操作", orderId);
+            return;
+        }
+
+        int releasedQuantity = 0;
         for (OrderDetail detail : orderDetails) {
             Long productId = detail.getProductId();
             Integer quantity = detail.getNumber();
@@ -102,7 +118,12 @@ public class StockServiceImpl implements InventoryService {
             }
 
             // 归还库存
-            productMapper.returnStock(productId, quantity);
+            int rows = productMapper.returnStock(productId, quantity);
+            if (rows == 0) {
+                log.warn("商品 {} 不存在，跳过库存归还", productId);
+                continue;
+            }
+            releasedQuantity += quantity;
 
             // 记录库存变动日志
             StockLog stockLog = StockLog.builder()
@@ -117,7 +138,14 @@ public class StockServiceImpl implements InventoryService {
                     .build();
             stockLogMapper.insert(stockLog);
         }
+        productMapper.completeRelease(orderId, ORDER_CLOSED_ACTION, releasedQuantity);
         log.info("订单 {} 库存归还完成", orderId);
+    }
+
+    private void validateQuantity(Integer quantity) {
+        if (quantity == null || quantity <= 0) {
+            throw new BaseException("库存变动数量必须大于0");
+        }
     }
 
     /**

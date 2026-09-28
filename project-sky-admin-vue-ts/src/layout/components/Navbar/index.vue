@@ -104,6 +104,7 @@ import { setNewData, getNewData } from '@/utils/cookies'
 
 // 接口
 import { getCountUnread } from '@/api/inform'
+import { issueWebSocketTicket, buildWebSocketUrl, WebSocketAttemptGuard } from '@/api/websocket'
 // 修改密码弹层
 import Password from '../components/password.vue'
 
@@ -118,7 +119,10 @@ import Password from '../components/password.vue'
 export default class extends Vue {
   private storeId = this.getStoreId
   private restKey: number = 0
-  private websocket = null
+  private websocket: WebSocket | null = null
+  private reconnectTimer: number | null = null
+  private socketDestroyed = false
+  private socketAttempts = new WebSocketAttemptGuard()
   private newOrder = ''
   private message = ''
   private audioIsPlaying = false
@@ -179,15 +183,15 @@ export default class extends Vue {
   onload() {
   }
   destroyed() {
-    this.websocket.close() //离开路由之后断开websocket连接
+    this.socketDestroyed = true
+    this.socketAttempts.dispose()
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer)
+    if (this.websocket) this.websocket.close()
   }
 
   // 添加新订单提示弹窗
-  webSocket() {
+  async webSocket() {
     const that = this as any
-    let clientId = Math.random().toString(36).substr(2)
-    let socketUrl = process.env.VUE_APP_SOCKET_URL + clientId
-    console.log(socketUrl, 'socketUrl')
     if (typeof WebSocket == 'undefined') {
       that.$notify({
         title: '提示',
@@ -196,6 +200,16 @@ export default class extends Vue {
         duration: 0,
       })
     } else {
+      const attempt = this.socketAttempts.begin()
+      let socketUrl: string
+      try {
+        const response = await issueWebSocketTicket()
+        socketUrl = buildWebSocketUrl(process.env.VUE_APP_SOCKET_URL as string, response.data.data.ticket)
+      } catch (error) {
+        this.scheduleWebSocketReconnect()
+        return
+      }
+      if (!this.socketAttempts.canOpen(attempt)) return
       this.websocket = new WebSocket(socketUrl)
       // 监听socket打开
       this.websocket.onopen = function () {
@@ -249,8 +263,17 @@ export default class extends Vue {
       // 监听socket关闭
       this.websocket.onclose = function () {
         console.log('WebSocket已关闭')
+        that.scheduleWebSocketReconnect()
       }
     }
+  }
+
+  private scheduleWebSocketReconnect() {
+    if (this.socketDestroyed || this.reconnectTimer !== null) return
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null
+      this.webSocket()
+    }, 3000)
   }
 
   private toggleSideBar() {

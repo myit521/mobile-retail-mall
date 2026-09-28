@@ -61,13 +61,7 @@ public class OrderNumberGenerator {
      */
     private long nextId() {
         totalRequestCount.incrementAndGet();
-        
-        if (current <= max) {
-            // 检查是否需要异步预加载
-            checkAndPreload();
-            return current++;
-        }
-        
+
         lock.lock();
         try {
             if (current > max) {

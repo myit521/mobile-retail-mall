@@ -1,5 +1,7 @@
 # 上线实施行动指南
 
+> **已由新文档体系取代（仅保留历史背景）。** 当前命令和验收状态以 [README.md](./README.md) 及其部署、回滚、最终验收链接为准。正文的单机步骤、`100+` 并发及其他数值是已作废的规划目标，不是性能结论、当前已验证事实或上线授权；可发布的实测数字仅见[已提交基线](./performance/reports/baseline.md)。
+
 > 配套阅读：
 > - [ONLINE_READINESS_GUIDE.md](./ONLINE_READINESS_GUIDE.md)
 > - [TECHNICAL_REFERENCE.md](./TECHNICAL_REFERENCE.md)

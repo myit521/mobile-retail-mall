@@ -35,20 +35,20 @@ class FlywayMigrationIT extends IntegrationTestBase {
     }
 
     @Test
-    void migratesEmptyMySqlDatabaseToVersionOneAndRerunIsANoOp() throws Exception {
+    void migratesEmptyMySqlDatabaseToVersionFiveAndRerunIsANoOp() throws Exception {
         String database = createDatabase();
 
         Flyway flyway = configuredFlyway(database);
         MigrateResult firstMigration = flyway.migrate();
 
         assertThat(firstMigration.success).isTrue();
-        assertThat(firstMigration.migrationsExecuted).isEqualTo(1);
+        assertThat(firstMigration.migrationsExecuted).isEqualTo(5);
         assertThat(tableNames(database)).contains(
                 "category", "employee", "id_segment", "memo", "order_detail", "orders",
-                "payment_callback_log", "phone_model", "product", "product_location",
+                "payment_callback_log", "outbox_event", "message_consumption", "phone_model", "product", "product_location",
                 "product_phone_model", "product_spec", "shopping_cart", "stock_alert",
-                "stock_check_plan", "stock_check_record", "stock_log", "user");
-        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("1"));
+                "stock_check_plan", "stock_check_record", "stock_log", "stock_operation", "user");
+        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("5"));
 
         MigrateResult rerun = flyway.migrate();
 
@@ -56,8 +56,9 @@ class FlywayMigrationIT extends IntegrationTestBase {
         assertThat(rerun.migrationsExecuted).isZero();
         assertThat(flyway.info().applied())
                 .extracting(MigrationInfo::getVersion)
-                .containsExactly(MigrationVersion.fromVersion("1"));
-        assertThat(migrationSuccess(database)).containsExactly(true);
+                .containsExactly(MigrationVersion.fromVersion("1"), MigrationVersion.fromVersion("2"),
+                        MigrationVersion.fromVersion("3"), MigrationVersion.fromVersion("4"), MigrationVersion.fromVersion("5"));
+        assertThat(migrationSuccess(database)).containsExactly(true, true, true, true, true);
     }
 
     @Test
@@ -71,10 +72,11 @@ class FlywayMigrationIT extends IntegrationTestBase {
         MigrateResult migration = flyway.migrate();
 
         assertThat(migration.success).isTrue();
-        assertThat(migration.migrationsExecuted).isZero();
-        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("1"));
-        assertThat(tableNames(database)).contains("category", "employee", "orders", "product", "user");
-        assertThat(migrationSuccess(database)).containsExactly(true);
+        assertThat(migration.migrationsExecuted).isEqualTo(4);
+        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("5"));
+        assertThat(tableNames(database)).contains(
+                "category", "employee", "orders", "product", "stock_operation", "outbox_event", "message_consumption", "user");
+        assertThat(migrationSuccess(database)).containsExactly(true, true, true, true, true);
     }
 
     private Flyway configuredFlyway(String database) {
