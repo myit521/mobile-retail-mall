@@ -97,7 +97,9 @@ jobs:
 
       - name: Verify rollback static contract
         shell: pwsh
-        run: ./sky-take-out/scripts/rollback-drill.ps1 -ConfigOnly -StableRevision HEAD^ -CandidateRevision HEAD
+        env:
+          ROLLBACK_CANDIDATE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: ./sky-take-out/scripts/rollback-drill.ps1 -ConfigOnly -StableRevision "${env:ROLLBACK_CANDIDATE_REVISION}^" -CandidateRevision $env:ROLLBACK_CANDIDATE_REVISION
 
       - name: Upload test and coverage reports
         if: ${{ always() }}
