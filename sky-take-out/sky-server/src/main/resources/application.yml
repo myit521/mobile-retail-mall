@@ -1,9 +1,36 @@
 server:
   port: 8080
 
+management:
+  server:
+    port: ${MANAGEMENT_SERVER_PORT:8081}
+    address: ${MANAGEMENT_SERVER_ADDRESS:127.0.0.1}
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+      show-components: never
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db,rabbit
+  health:
+    rabbit:
+      enabled: true
+
 spring:
   profiles:
     active: dev
+  mvc:
+    # Springfox 3 uses Ant path conditions; Actuator adds parsed-path mappings.
+    pathmatch:
+      matching-strategy: ant_path_matcher
   config:
     import: optional:classpath:application-dev.local.yml
   main:
@@ -55,6 +82,9 @@ logging:
         controller: info
 
 sky:
+  websocket:
+    ticket-ttl: ${SKY_WEBSOCKET_TICKET_TTL:PT30S}
+    ticket-key-prefix: ${SKY_WEBSOCKET_TICKET_KEY_PREFIX:websocket:ticket:}
   jwt:
     # 设置jwt签名加密时使用的秘钥
     admin-secret-key: ${SKY_JWT_ADMIN_SECRET_KEY:change-me-admin}
@@ -106,3 +136,21 @@ sky:
       model: ${sky.ai.siliconflow.model:deepseek-ai/DeepSeek-V3}
       timeout: ${sky.ai.siliconflow.timeout:60}
       enabled: ${sky.ai.siliconflow.enabled:true}
+
+  outbox:
+    # Task 10 enables this only after envelope-aware idempotent consumers are installed.
+    enabled: ${SKY_OUTBOX_ENABLED:true}
+    worker-id: ${SKY_OUTBOX_WORKER_ID:${random.uuid}}
+    lease-duration: ${SKY_OUTBOX_LEASE_DURATION:PT30S}
+    initial-backoff: ${SKY_OUTBOX_INITIAL_BACKOFF:PT2S}
+    max-backoff: ${SKY_OUTBOX_MAX_BACKOFF:PT5M}
+    confirm-timeout: ${SKY_OUTBOX_CONFIRM_TIMEOUT:PT5S}
+    max-attempts: ${SKY_OUTBOX_MAX_ATTEMPTS:8}
+    poll-delay-ms: ${SKY_OUTBOX_POLL_DELAY_MS:1000}
+    health:
+      pending-threshold: ${SKY_OUTBOX_HEALTH_PENDING_THRESHOLD:1000}
+      failed-threshold: ${SKY_OUTBOX_HEALTH_FAILED_THRESHOLD:0}
+      refresh-ms: ${SKY_OUTBOX_HEALTH_REFRESH_MS:30000}
+  messaging:
+    consumer:
+      max-attempts: ${SKY_MESSAGING_CONSUMER_MAX_ATTEMPTS:3}

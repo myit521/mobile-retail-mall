@@ -12,6 +12,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan repository for secrets
+        # v3.0.0, pinned to the immutable upstream commit (Node 24 runtime).
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-java@v4
         with:
@@ -24,6 +32,74 @@ jobs:
 
       - name: Verify backend
         run: mvn -B -f sky-take-out/pom.xml verify
+
+      - name: Build traceable backend image
+        run: docker build --build-arg VCS_REF="${GITHUB_SHA}" --tag "sky-take-out:${GITHUB_SHA}" sky-take-out
+
+      - name: Verify image metadata and credential separation
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="sky-take-out:${GITHUB_SHA}"
+          revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
+          test "$revision" = "$GITHUB_SHA"
+          test "$(docker image inspect --format '{{.Config.User}}' "$image")" = "sky"
+          history_and_config="$(docker history --no-trunc --format '{{.CreatedBy}}' "$image"; docker image inspect --format '{{json .Config}}' "$image")"
+          for name in MYSQL_PASSWORD MYSQL_ROOT_PASSWORD REDIS_PASSWORD RABBITMQ_PASSWORD SKY_JWT_ADMIN_SECRET_KEY SKY_JWT_USER_SECRET_KEY; do
+            if grep -Fq "$name" <<<"$history_and_config"; then
+              echo "Credential variable name unexpectedly appears in image history/config: $name" >&2
+              exit 1
+            fi
+          done
+          audit_root="$PWD/image-audit"
+          scan_root="$audit_root/app-scan"
+          test ! -e "$audit_root"
+          container="$(docker create "$image")"
+          cleanup_audit() {
+            docker rm -f "$container" >/dev/null 2>&1 || true
+            rm -rf -- "$audit_root"
+          }
+          trap cleanup_audit EXIT
+          mkdir -p "$audit_root/rootfs" "$scan_root/metadata"
+          docker export "$container" | tar -xf - -C "$audit_root/rootfs"
+          docker history --no-trunc --format '{{.CreatedBy}}' "$image" > "$scan_root/metadata/history.txt"
+          docker image inspect "$image" > "$scan_root/metadata/config.json"
+          # Scan application resources and image metadata, excluding the upstream OS/JDK.
+          mkdir -p "$scan_root/jar-resources"
+          unzip -q "$audit_root/rootfs/app/app.jar" 'BOOT-INF/classes/*' -d "$scan_root/jar-resources"
+          test -f "$scan_root/jar-resources/BOOT-INF/classes/application.yml"
+
+          # Prove this exact scan target detects a seeded credential-shaped resource.
+          canary_file="$scan_root/jar-resources/BOOT-INF/classes/.gitleaks-canary"
+          canary_report="$scan_root/canary-report.json"
+          printf 'ghp_%s' "$(openssl rand -hex 18)" > "$canary_file"
+          set +e
+          docker run --rm --volume "$scan_root:/scan" \
+            ghcr.io/gitleaks/gitleaks:v8.28.0@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854 \
+            detect --no-git --source /scan --redact --exit-code 42 --report-format json --report-path /scan/canary-report.json >/dev/null 2>&1
+          canary_status=$?
+          set -e
+          if [ "$canary_status" -eq 0 ]; then
+            echo 'Gitleaks canary was not detected in the extracted application resources' >&2
+            exit 1
+          fi
+          if [ "$canary_status" -ne 42 ]; then
+            echo "Gitleaks canary scan failed with infrastructure exit code $canary_status" >&2
+            exit 1
+          fi
+          jq -e 'any(.[]; (.File | endswith("/.gitleaks-canary")) and (.RuleID | type == "string" and length > 0))' "$canary_report" >/dev/null
+          rm -f -- "$canary_file" "$canary_report"
+          test ! -e "$canary_file" && test ! -e "$canary_report"
+
+          docker run --rm --volume "$scan_root:/scan:ro" \
+            ghcr.io/gitleaks/gitleaks:v8.28.0@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854 \
+            detect --no-git --source /scan --redact --exit-code 1 --verbose
+
+      - name: Verify rollback static contract
+        shell: pwsh
+        env:
+          ROLLBACK_CANDIDATE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: ./sky-take-out/scripts/rollback-drill.ps1 -ConfigOnly -StableRevision "${env:ROLLBACK_CANDIDATE_REVISION}^" -CandidateRevision $env:ROLLBACK_CANDIDATE_REVISION
 
       - name: Upload test and coverage reports
         if: ${{ always() }}

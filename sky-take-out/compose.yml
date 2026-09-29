@@ -1,0 +1,134 @@
+name: sky-take-out
+
+services:
+  mysql:
+    image: mysql:8.4.5
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
+      MYSQL_USER: ${MYSQL_USERNAME:?MYSQL_USERNAME is required}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+      TZ: Asia/Shanghai
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docker/mysql/init/10-grant-flyway-metadata.sh:/docker-entrypoint-initdb.d/10-grant-flyway-metadata.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.2-alpine
+    command: ["/bin/sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13.7-management-alpine
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:?RABBITMQ_USERNAME is required}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 20s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VCS_REF: ${VCS_REF:-local}
+    image: sky-take-out:${VCS_REF:-local}
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:?MYSQL_USERNAME is required}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_DATABASE: "0"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      SKY_RABBITMQ_HOST: rabbitmq
+      SKY_RABBITMQ_PORT: "5672"
+      SKY_RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:?RABBITMQ_USERNAME is required}
+      SKY_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}
+      MANAGEMENT_SERVER_ADDRESS: ${MANAGEMENT_SERVER_ADDRESS:-0.0.0.0}
+      MANAGEMENT_SERVER_PORT: ${MANAGEMENT_SERVER_PORT:-8081}
+      SKY_JWT_ADMIN_SECRET_KEY: ${SKY_JWT_ADMIN_SECRET_KEY:?SKY_JWT_ADMIN_SECRET_KEY is required}
+      SKY_JWT_USER_SECRET_KEY: ${SKY_JWT_USER_SECRET_KEY:?SKY_JWT_USER_SECRET_KEY is required}
+      WECHAT_APP_ID: ${WECHAT_APP_ID:-}
+      WECHAT_APP_SECRET: ${WECHAT_APP_SECRET:-}
+      WECHAT_MCH_ID: ${WECHAT_MCH_ID:-}
+      WECHAT_MCH_SERIAL_NO: ${WECHAT_MCH_SERIAL_NO:-}
+      WECHAT_PRIVATE_KEY_FILE: ${WECHAT_PRIVATE_KEY_FILE:-}
+      WECHAT_API_V3_KEY: ${WECHAT_API_V3_KEY:-}
+      WECHAT_PAY_CERT_FILE: ${WECHAT_PAY_CERT_FILE:-}
+      WECHAT_NOTIFY_URL: ${WECHAT_NOTIFY_URL:-}
+      WECHAT_REFUND_NOTIFY_URL: ${WECHAT_REFUND_NOTIFY_URL:-}
+      ALIYUN_OSS_ENDPOINT: ${ALIYUN_OSS_ENDPOINT:-oss-cn-beijing.aliyuncs.com}
+      ALIYUN_OSS_ACCESS_KEY_ID: ${ALIYUN_OSS_ACCESS_KEY_ID:-}
+      ALIYUN_OSS_ACCESS_KEY_SECRET: ${ALIYUN_OSS_ACCESS_KEY_SECRET:-}
+      ALIYUN_OSS_BUCKET_NAME: ${ALIYUN_OSS_BUCKET_NAME:-}
+      BAIDU_MAP_AK: ${BAIDU_MAP_AK:-}
+      SHOP_ADDRESS: ${SHOP_ADDRESS:-}
+      SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
+      SILICONFLOW_BASE_URL: ${SILICONFLOW_BASE_URL:-https://api.siliconflow.cn}
+      SILICONFLOW_MODEL: ${SILICONFLOW_MODEL:-deepseek-ai/DeepSeek-V3}
+      SILICONFLOW_TIMEOUT: ${SILICONFLOW_TIMEOUT:-60}
+      SILICONFLOW_ENABLED: ${SILICONFLOW_ENABLED:-false}
+      SKY_WEBSOCKET_TICKET_TTL: ${SKY_WEBSOCKET_TICKET_TTL:-PT30S}
+      SKY_WEBSOCKET_TICKET_KEY_PREFIX: ${SKY_WEBSOCKET_TICKET_KEY_PREFIX:-websocket:ticket:}
+      SKY_OUTBOX_ENABLED: ${SKY_OUTBOX_ENABLED:-true}
+      SKY_OUTBOX_WORKER_ID: ${SKY_OUTBOX_WORKER_ID:-sky-compose-worker}
+      SKY_OUTBOX_LEASE_DURATION: ${SKY_OUTBOX_LEASE_DURATION:-PT30S}
+      SKY_OUTBOX_INITIAL_BACKOFF: ${SKY_OUTBOX_INITIAL_BACKOFF:-PT2S}
+      SKY_OUTBOX_MAX_BACKOFF: ${SKY_OUTBOX_MAX_BACKOFF:-PT5M}
+      SKY_OUTBOX_CONFIRM_TIMEOUT: ${SKY_OUTBOX_CONFIRM_TIMEOUT:-PT5S}
+      SKY_OUTBOX_MAX_ATTEMPTS: ${SKY_OUTBOX_MAX_ATTEMPTS:-8}
+      SKY_OUTBOX_POLL_DELAY_MS: ${SKY_OUTBOX_POLL_DELAY_MS:-1000}
+      SKY_OUTBOX_HEALTH_PENDING_THRESHOLD: ${SKY_OUTBOX_HEALTH_PENDING_THRESHOLD:-1000}
+      SKY_OUTBOX_HEALTH_FAILED_THRESHOLD: ${SKY_OUTBOX_HEALTH_FAILED_THRESHOLD:-0}
+      SKY_OUTBOX_HEALTH_REFRESH_MS: ${SKY_OUTBOX_HEALTH_REFRESH_MS:-30000}
+      SKY_MESSAGING_CONSUMER_MAX_ATTEMPTS: ${SKY_MESSAGING_CONSUMER_MAX_ATTEMPTS:-3}
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --output-document=- http://localhost:8081/actuator/health/readiness | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 45s
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  redis-data:
+  rabbitmq-data:

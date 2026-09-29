@@ -12,10 +12,12 @@ import com.sky.exception.OrderBusinessException;
 import com.sky.inventory.api.InventoryService;
 import com.sky.order.api.OrderApplicationService;
 import com.sky.order.api.event.OrderPaidMessage;
+import com.sky.order.internal.OrderTransition;
 import com.sky.order.internal.messaging.OrderEventPublisher;
 import com.sky.order.internal.persistence.OrderDetailMapper;
 import com.sky.order.internal.persistence.OrderMapper;
 import com.sky.order.internal.support.OrderNumberGenerator;
+import com.sky.observability.BusinessMetrics;
 import com.sky.product.api.ShoppingCartService;
 import com.sky.result.PageResult;
 import com.sky.result.Result;
@@ -57,6 +59,8 @@ public class OrderServiceImpl implements OrderApplicationService {
     private InventoryService inventoryService;
     @Autowired
     private OrderNumberGenerator orderNumberGenerator;
+    @Autowired(required = false)
+    private BusinessMetrics metrics;
 
     /**
      * 用户下单
@@ -222,6 +226,9 @@ public class OrderServiceImpl implements OrderApplicationService {
     @Transactional
     public Result userCancel(Long id) {
         Long userId = BaseContext.getCurrentId();
+        if (userId == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
         Orders orders = orderMapper.selectByIdAndUserId(id, userId);
         if (orders == null) {
             throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
@@ -229,6 +236,10 @@ public class OrderServiceImpl implements OrderApplicationService {
         if (orders.getStatus().equals(Orders.CANCELLED)) {
             throw new OrderBusinessException(MessageConstant.ORDER_CANCELLED);
         }
+        if (!transition(orders, userId, Orders.CANCELLED, BusinessMetrics.OrderOperation.CANCEL)) {
+            return Result.success();
+        }
+        Orders details = Orders.builder().id(id).cancelReason("用户取消订单").build();
             
         // 已支付的订单需要退款
         if (orders.getPayStatus().equals(Orders.PAID)) {
@@ -240,21 +251,12 @@ public class OrderServiceImpl implements OrderApplicationService {
                 log.error("用户取消订单退款失败，订单号：{}", orders.getNumber(), e);
                 throw new OrderBusinessException("退款申请失败：" + e.getMessage());
             }
-            orders.setPayStatus(Orders.REFUND);
+            details.setPayStatus(Orders.REFUND);
         }
-            
-        orders.setStatus(Orders.CANCELLED);
-        orders.setCancelTime(LocalDateTime.now());
-        orders.setCancelReason("用户取消订单");
-            
-        int result = orderMapper.update(orders);
-        if (result > 0) {
-            // 归还库存
-            returnStock(id);
-            log.info("用户取消订单成功，订单号：{}，userId：{}", orders.getNumber(), userId);
-            return Result.success();
-        }
-        return Result.error(MessageConstant.ORDER_NOT_FOUND);
+        updateTransitionDetails(details);
+        returnStock(id);
+        log.info("用户取消订单成功，订单号：{}，userId：{}", orders.getNumber(), userId);
+        return Result.success();
     }
 
     /**
@@ -379,13 +381,10 @@ public class OrderServiceImpl implements OrderApplicationService {
             throw new OrderBusinessException(MessageConstant.ORDER_NOT_PAID);
         }
 
-        orders.setStatus(Orders.PROCESSING);
-        
-        if (orderMapper.update(orders) > 0) {
+        if (transition(orders, null, Orders.PROCESSING, BusinessMetrics.OrderOperation.ACCEPT)) {
             log.info("接单成功，订单号：{}", orders.getNumber());
-            return MessageConstant.ORDER_CONFIRM_SUCCESS;
         }
-        return MessageConstant.ORDER_CONFIRM_FAILED;
+        return MessageConstant.ORDER_CONFIRM_SUCCESS;
     }
 
     /**
@@ -401,6 +400,14 @@ public class OrderServiceImpl implements OrderApplicationService {
         if (orders == null) {
             throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
         }
+        if (!Orders.PENDING_PROCESS.equals(orders.getStatus())) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+        if (!transition(orders, null, Orders.CANCELLED, BusinessMetrics.OrderOperation.REJECT)) {
+            return MessageConstant.ORDER_REJECTION_SUCCESS;
+        }
+        Orders details = Orders.builder().id(orders.getId())
+                .rejectionReason(ordersRejectionDTO.getRejectionReason()).build();
 
         // 根据支付状态决定是否需要退款
         if (orders.getPayStatus().equals(Orders.PAID)) {
@@ -412,20 +419,12 @@ public class OrderServiceImpl implements OrderApplicationService {
                 log.error("拒单退款失败，订单号：{}", orders.getNumber(), e);
                 throw new OrderBusinessException("退款申请失败：" + e.getMessage());
             }
-            orders.setPayStatus(Orders.REFUND);
+            details.setPayStatus(Orders.REFUND);
         }
-        
-        orders.setStatus(Orders.CANCELLED);
-        orders.setRejectionReason(ordersRejectionDTO.getRejectionReason());
-        orders.setCancelTime(LocalDateTime.now());
-        
-        if (orderMapper.update(orders) > 0) {
-            // 归还库存
-            returnStock(ordersRejectionDTO.getId());
-            log.info("拒单成功，订单号：{}，原因：{}", orders.getNumber(), ordersRejectionDTO.getRejectionReason());
-            return MessageConstant.ORDER_REJECTION_SUCCESS;
-        }
-        return MessageConstant.ORDER_REJECTION_FAILED;
+        updateTransitionDetails(details);
+        returnStock(ordersRejectionDTO.getId());
+        log.info("拒单成功，订单号：{}，原因：{}", orders.getNumber(), ordersRejectionDTO.getRejectionReason());
+        return MessageConstant.ORDER_REJECTION_SUCCESS;
     }
 
     /**
@@ -449,9 +448,11 @@ public class OrderServiceImpl implements OrderApplicationService {
             throw new OrderBusinessException(MessageConstant.ORDER_CANCELLED);
         }
 
-        orders.setStatus(Orders.CANCELLED);
-        orders.setCancelReason(ordersCancelDTO.getCancelReason());
-        orders.setCancelTime(LocalDateTime.now());
+        if (!transition(orders, null, Orders.CANCELLED, BusinessMetrics.OrderOperation.CANCEL)) {
+            return MessageConstant.ORDER_CANCELLED;
+        }
+        Orders details = Orders.builder().id(orders.getId())
+                .cancelReason(ordersCancelDTO.getCancelReason()).build();
 
         // 根据支付状态决定是否需要退款
         if (orders.getPayStatus().equals(Orders.PAID)) {
@@ -463,16 +464,14 @@ public class OrderServiceImpl implements OrderApplicationService {
                 log.error("管理员取消订单退款失败，订单号：{}", orders.getNumber(), e);
                 throw new OrderBusinessException("退款申请失败：" + e.getMessage());
             }
-            orders.setPayStatus(Orders.REFUND);
+            details.setPayStatus(Orders.REFUND);
         }
-
-        if (orderMapper.update(orders) > 0) {
-            // 归还库存
-            returnStock(ordersCancelDTO.getId());
-            log.info("管理员取消订单成功，订单号：{}，原因：{}", orders.getNumber(), ordersCancelDTO.getCancelReason());
-            return MessageConstant.ORDER_CANCELLED;
+        if (details.getCancelReason() != null || details.getPayStatus() != null) {
+            updateTransitionDetails(details);
         }
-        throw new OrderBusinessException(MessageConstant.ORDER_CANCEL_FAILED);
+        returnStock(ordersCancelDTO.getId());
+        log.info("管理员取消订单成功，订单号：{}，原因：{}", orders.getNumber(), ordersCancelDTO.getCancelReason());
+        return MessageConstant.ORDER_CANCELLED;
     }
     
     /**
@@ -572,62 +571,41 @@ public class OrderServiceImpl implements OrderApplicationService {
      */
     @Transactional(rollbackFor = Exception.class)
     public void paySuccessWithValidation(String outTradeNo, String transactionId, Double actualAmount) {
-        // 1. 根据订单号查询订单
-        Orders ordersDB = orderMapper.getByNumber(outTradeNo);
-        
-        if (ordersDB == null) {
-            log.error("订单不存在，outTradeNo={}", outTradeNo);
-            throw new OrderBusinessException("订单不存在：" + outTradeNo);
+        OrderPaidMessage paid = applyPayment(outTradeNo, actualAmount == null ? null : BigDecimal.valueOf(actualAmount));
+        if (paid != null) {
+            orderEventPublisher.publishOrderPaid(paid);
         }
+    }
 
-        // 2. 幂等性校验：如果订单已支付，直接返回（不重复处理）
-        if (ordersDB.getPayStatus().equals(Orders.PAID)) {
-            log.warn("订单已支付，无需重复处理，outTradeNo={}, status={}, payStatus={}", 
-                    outTradeNo, ordersDB.getStatus(), ordersDB.getPayStatus());
-            return;
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public OrderPaidMessage completeVerifiedPayment(String orderNumber, BigDecimal amount) {
+        if (amount == null || amount.signum() < 0) {
+            throw new OrderBusinessException("支付金额不一致");
         }
+        return applyPayment(orderNumber, amount);
+    }
 
-        // 3. 校验订单状态：只有待支付的订单才能处理
-        if (!ordersDB.getStatus().equals(Orders.PENDING_PAYMENT)) {
-            log.error("订单状态异常，无法支付，outTradeNo={}, currentStatus={}", 
-                    outTradeNo, ordersDB.getStatus());
-            throw new OrderBusinessException("订单状态异常：" + ordersDB.getStatus());
+    private OrderPaidMessage applyPayment(String orderNumber, BigDecimal amount) {
+        Orders order = orderMapper.getByNumber(orderNumber);
+        if (order == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
         }
-
-        // 4. 金额校验（可选）：如果传入实际金额，与订单金额对比
-        if (actualAmount != null) {
-            int compare = actualAmount.compareTo(ordersDB.getAmount().doubleValue());
-            if (compare != 0) {
-                log.error("支付金额与订单金额不一致，outTradeNo={}, orderAmount={}, payAmount={}", 
-                        outTradeNo, ordersDB.getAmount(), actualAmount);
-                throw new OrderBusinessException("支付金额不一致");
-            }
+        if (amount != null && amount.compareTo(order.getAmount()) != 0) {
+            throw new OrderBusinessException("支付金额不一致");
         }
-
-        // 5. 更新订单状态
-        Orders orders = Orders.builder()
-                .id(ordersDB.getId())
-                .status(Orders.PENDING_PROCESS)
-                .payStatus(Orders.PAID)
-                .checkoutTime(LocalDateTime.now())
-                .build();
-
-        int result = orderMapper.update(orders);
-        if (result <= 0) {
-            log.error("更新订单状态失败，outTradeNo={}", outTradeNo);
-            throw new OrderBusinessException("更新订单状态失败");
+        if (Orders.PAID.equals(order.getPayStatus())) {
+            return null;
         }
-
-        // 6. 发布支付成功事件，异步处理通知和审计
-        orderEventPublisher.publishOrderPaid(OrderPaidMessage.builder()
-                .orderId(ordersDB.getId())
-                .orderNumber(ordersDB.getNumber())
-                .userId(ordersDB.getUserId())
-                .amount(ordersDB.getAmount())
-                .build());
-
-        log.info("订单支付成功，orderNo={}, orderId={}, userId={}, amount={}", 
-                outTradeNo, ordersDB.getId(), ordersDB.getUserId(), ordersDB.getAmount());
+        if (!Orders.PENDING_PAYMENT.equals(order.getStatus()) || !Orders.UN_PAID.equals(order.getPayStatus())) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+        if (!transition(order, null, Orders.PENDING_PROCESS, BusinessMetrics.OrderOperation.PAYMENT)) {
+            return null;
+        }
+        updateTransitionDetails(Orders.builder().id(order.getId()).payStatus(Orders.PAID).build());
+        return OrderPaidMessage.builder().orderId(order.getId()).orderNumber(order.getNumber())
+                .userId(order.getUserId()).amount(order.getAmount()).build();
     }
 
     /**
@@ -635,27 +613,9 @@ public class OrderServiceImpl implements OrderApplicationService {
      *
      * @param outTradeNo
      */
+    @Transactional(rollbackFor = Exception.class)
     public void paySuccess(String outTradeNo) {
-
-        // 根据订单号查询订单
-        Orders ordersDB = orderMapper.getByNumber(outTradeNo);
-
-        // 根据订单id更新订单的状态、支付方式、支付状态、结账时间
-        Orders orders = Orders.builder()
-                .id(ordersDB.getId())
-                .status(Orders.PENDING_PROCESS)
-                .payStatus(Orders.PAID)
-                .checkoutTime(LocalDateTime.now())
-                .build();
-
-        orderMapper.update(orders);
-        orderEventPublisher.publishOrderPaid(OrderPaidMessage.builder()
-                .orderId(ordersDB.getId())
-                .orderNumber(ordersDB.getNumber())
-                .userId(ordersDB.getUserId())
-                .amount(ordersDB.getAmount())
-                .build());
-
+        paySuccessWithValidation(outTradeNo, null, null);
     }
 
     @Override
@@ -671,12 +631,55 @@ public class OrderServiceImpl implements OrderApplicationService {
             return;
         }
 
-        orders.setStatus(Orders.CANCELLED);
-        orders.setCancelTime(LocalDateTime.now());
-        orders.setCancelReason(MessageConstant.ORDER_PAYMENT_TIMEOUT);
-        orderMapper.update(orders);
+        if (!transition(orders, null, Orders.CANCELLED, BusinessMetrics.OrderOperation.TIMEOUT)) {
+            return;
+        }
+        updateTransitionDetails(Orders.builder().id(orders.getId())
+                .cancelReason(MessageConstant.ORDER_PAYMENT_TIMEOUT).build());
         returnStock(orders.getId());
         log.info("订单超时取消成功，orderNo={}", orderNumber);
+    }
+
+    private boolean transition(Orders orders, Long ownerId, int targetStatus,
+                               BusinessMetrics.OrderOperation operation) {
+        requireOperationForTarget(targetStatus, operation);
+        OrderTransition.requireAllowed(orders.getStatus(), targetStatus);
+        if (orderMapper.transition(orders.getId(), ownerId, orders.getStatus(), targetStatus,
+                LocalDateTime.now()) == 1) {
+            return true;
+        }
+        // A locking current read sees the winner under MySQL REPEATABLE READ.
+        Orders current = orderMapper.selectForUpdate(orders.getId(), ownerId);
+        if (current == null || (ownerId != null && !ownerId.equals(current.getUserId()))) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+        if (Integer.valueOf(targetStatus).equals(current.getStatus())) {
+            if (metrics != null) metrics.orderConflict(operation);
+            return false;
+        }
+        if (metrics != null) metrics.orderConflict(operation);
+        throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+    }
+
+    private void requireOperationForTarget(int targetStatus, BusinessMetrics.OrderOperation operation) {
+        boolean matches;
+        switch (targetStatus) {
+            case 2: matches = operation == BusinessMetrics.OrderOperation.PAYMENT; break;
+            case 3: matches = operation == BusinessMetrics.OrderOperation.ACCEPT; break;
+            case 4: matches = operation == BusinessMetrics.OrderOperation.DELIVERY; break;
+            case 5: matches = operation == BusinessMetrics.OrderOperation.COMPLETE; break;
+            case 6: matches = operation == BusinessMetrics.OrderOperation.CANCEL
+                    || operation == BusinessMetrics.OrderOperation.REJECT
+                    || operation == BusinessMetrics.OrderOperation.TIMEOUT; break;
+            default: throw new IllegalArgumentException("Unknown order transition target: " + targetStatus);
+        }
+        if (!matches) throw new IllegalArgumentException("Order operation does not match transition target");
+    }
+
+    private void updateTransitionDetails(Orders details) {
+        if (orderMapper.updateTransitionDetails(details) != 1) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
     }
 
     private void returnStock(Long orderId) {

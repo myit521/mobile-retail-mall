@@ -1,0 +1,28 @@
+title = "Public test fixture exceptions"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Public fake API key used only to verify sensitive log redaction."
+condition = "AND"
+regexTarget = "line"
+paths = ['''^sky-take-out/sky-server/src/test/java/com/sky/observability/SensitiveLoggingTest\.java$''']
+regexes = ['''^\n?        String input = "password=" \+ canary \+ " token=Bearer abc\.def\.ghi apiKey=sk-live-123456 "\r?$''']
+
+[[rules.allowlists]]
+description = "Public deterministic AES key used only by the payment callback test fixture."
+condition = "AND"
+regexTarget = "line"
+paths = ['''^sky-take-out/sky-server/src/test/java/com/sky/payment/CallbackCryptoFixture\.java$''']
+regexes = ['''^\n?    static final String AES_KEY = "0123456789abcdef0123456789abcdef";\r?$''']
+
+[[rules.allowlists]]
+description = "Public disposable RSA private key used only by the payment callback test fixture."
+condition = "AND"
+regexTarget = "line"
+paths = ['''^sky-take-out/sky-server/src/test/java/com/sky/payment/CallbackCryptoFixture\.java$''']
+regexes = ['''^\n?    private static final String PRIVATE_KEY = "MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC7FIJrMO5L9NVjW4oIuJDqUVybmsaxhxiYfFDK2UMf82XEtQ0R5EAthbxqGjYPjMcyn9dNDx4Dp4ZZhbjR6JwvqMt8ItA8L6HAIiOoVoyobnv9I58RBrePCTpnVFs2U0RRg0iOqMmVC\+9UqADVY8PyAR/eDdg71/NXW9XqwPULg\+hLgzXgXCNHstruR1tARQP94gd1v6QuAQsaOXokN5yjbKGca5WPQIkCx8udpzfVmK4Fjnwcdf4HeQ8vBKmu5aa\+eEO1C3pDt087WztfYZsalas7TcqmicheDmlrV1SEZksR9GOBLDqHfkPhKbbJcwCf2Je6kkx3ie1LZ4tO1nIxAgMBAAECggEAJ\+gsGemKK7HCgztXqpyUbSeF9buCfwQufvil01\+dLgehweBNNW/XMN7CXm/Q8Gg7ZdUq/EkpQeZOhnI8Bqr0BkafgY97lBslCfM\+X/52aseGs20R1XP1XBG/36LjAieo/ypeI/Blb\+Hn38smwl5RwiHzRk71vW5Hfm8cpsMagqX3WaUGNAUqFzawEFBDd\+/da7LzoqjbxksfEUyXKbRsUebLk2vXJW/XUTfSOHKWBh7TQmaUvesLo1udpUASbCs2XBYI7hDkwCHzXRc7QGwlFz/Prx4rJS8FUoW9ioSWivfeDxwV9rbvzGK8wmdWOfVepoXtNw5bASs6sAoWhr3YsQKBgQDW2fXoe3GlJShm9XgtmTk38IypDo1lXUwJQXbXH6RwKOOyylngUSewkIP7PCepfZ2NDw0nwSR6XW3cLvOJRin/gViUY\+tSn3uxi7WyjFkLYqN71jXNpiKU4iepIgxsBy3SOr3x7PYmees4q5lJy9bEvF8dqi7QJEACYV8Sq5fRiwKBgQDe6PBDMZTBJkMfiSySqDrxkBLMia/R/Cm9IgOZTqK9BtHu/\+7Lj0YZQECstFOP8TL9yBsXeplXc7UwM3SHiYSZHWZ/HkIp0faNhBcP02klqtF2ia77sepXa5WXe5McW0NLOek4nUcGloAyvfMBXcqpZUIuA98ENUoj10R8uW6KswKBgQCvaPANyIr2K6oatRpTEB/Y/fm5JHpoYY1smRfvdpQIRjnwhKhwLZHb44D9oxU2maoBumIhLN0dUh4Zf/OxBanQQsgRDqrXoAGa6NeFWHRyiSu0NSVkKtlc\+G8s9PFzWUEdvHvLgo1MyIk0kVTrHRLROIHndEQYByCDUQAP/CxNFQKBgCuxYRbqqwvJIjMWQkRk8VjUMrsg6fOxB8Vo22e7gC6pHZFJXVdNOCJO895mYlK\+po4UIStS/qejqIpQK7E9hV414xdbqQBlhXxrvdF\+UQfvGauwhToUv6hvEB1nPYi7Ys9mBI7yVS\+3ZF2N2goUhlr53CUE4TwD7gpkcao49q/9AoGBALUmTkfTQ7xrNPkesViFdLgCKwUmajTiakzBUu/hVNWl7PzzJJqYrF5jQHAtCaA1aHhu9/kuCoG60vP44QA3VbLJvF4mf1ILNrbh5iKmofy5NsXBRYvAfHsEEF06\+tQpusBQcBsEvX3rJP0fAa3teLBpFeWegkYSLQDWTqPcdbGN";\r?$''']

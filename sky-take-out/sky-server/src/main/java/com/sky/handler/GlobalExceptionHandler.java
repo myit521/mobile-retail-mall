@@ -1,101 +1,77 @@
 package com.sky.handler;
 
+import com.sky.constant.ErrorCode;
 import com.sky.constant.MessageConstant;
+import com.sky.exception.AccountLockedException;
+import com.sky.exception.AccountNotFoundException;
 import com.sky.exception.BaseException;
-import com.sky.result.Result;
+import com.sky.exception.LoginFailedException;
+import com.sky.exception.PasswordErrorException;
+import com.sky.exception.TooManyAttemptsException;
+import com.sky.exception.UserNotLoginException;
+import com.sky.observability.SensitiveValueSanitizer;
+import com.sky.result.ErrorResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import javax.validation.ConstraintViolationException;
-import java.sql.SQLIntegrityConstraintViolationException;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
-/**
- * 全局异常处理器，处理项目中抛出的业务异常
- */
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
-    /**
-     * 捕获全局异常，返回错误信息
-     * @param ex
-     * @return
-     */
+    @ExceptionHandler({MethodArgumentNotValidException.class, ConstraintViolationException.class,
+            NumberFormatException.class, IllegalArgumentException.class})
+    public ResponseEntity<ErrorResponse> validation(Exception exception) {
+        String message = exception instanceof MethodArgumentNotValidException valid && valid.getBindingResult().hasErrors()
+                ? valid.getBindingResult().getAllErrors().get(0).getDefaultMessage() : MessageConstant.INVALID_PARAM;
+        log.warn("request rejected, errorType={}", exception.getClass().getSimpleName());
+        return error(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_ERROR, message);
+    }
+
+    @ExceptionHandler({UserNotLoginException.class, LoginFailedException.class, PasswordErrorException.class,
+            AccountNotFoundException.class, AccountLockedException.class, TooManyAttemptsException.class})
+    public ResponseEntity<ErrorResponse> authentication(BaseException exception) {
+        log.warn("authentication failed, errorType={}", exception.getClass().getSimpleName());
+        return error(HttpStatus.UNAUTHORIZED, ErrorCode.AUTHENTICATION_ERROR, safeBusinessMessage(exception));
+    }
+
+    @ExceptionHandler(SecurityException.class)
+    public ResponseEntity<ErrorResponse> permission(SecurityException exception) {
+        log.warn("permission denied, errorType={}", exception.getClass().getSimpleName());
+        return error(HttpStatus.FORBIDDEN, ErrorCode.PERMISSION_DENIED, "无权限执行此操作");
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> conflict(DataIntegrityViolationException exception) {
+        log.warn("database conflict, errorType={}", exception.getClass().getSimpleName());
+        return error(HttpStatus.CONFLICT, ErrorCode.CONFLICT, MessageConstant.ALREADY_EXISTS);
+    }
+
+    @ExceptionHandler(BaseException.class)
+    public ResponseEntity<ErrorResponse> business(BaseException exception) {
+        log.warn("business failure, errorType={}, message={}", exception.getClass().getSimpleName(),
+                SensitiveValueSanitizer.sanitize(safeBusinessMessage(exception)));
+        return error(HttpStatus.BAD_REQUEST, ErrorCode.BUSINESS_ERROR, safeBusinessMessage(exception));
+    }
+
     @ExceptionHandler(Exception.class)
-    public Result exceptionHandler(Exception ex) {
-        log.error("系统异常", ex);
-        return Result.error(MessageConstant.UNKNOWN_ERROR);
+    public ResponseEntity<ErrorResponse> system(Exception exception) {
+        log.error("system failure, errorType={}", exception.getClass().getSimpleName());
+        return error(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.SYSTEM_ERROR, MessageConstant.UNKNOWN_ERROR);
     }
 
-    /**
-     * 捕获业务异常
-     * @param ex
-     * @return
-     */
-    @ExceptionHandler
-    public Result exceptionHandler(BaseException ex){
-        String message = StringUtils.hasText(ex.getMessage()) ? ex.getMessage() : MessageConstant.UNKNOWN_ERROR;
-        log.warn("业务异常：{}", message);
-        return Result.error(message);
-    }
-    /**
-     * 捕获sql异常
-     * @param ex
-     * @return
-     */
-    @ExceptionHandler
-    public Result exceptionHandler(SQLIntegrityConstraintViolationException  ex){
-        log.error("数据库约束异常", ex);
-        String message = ex.getMessage();
-        // 匹配 "Duplicate entry 'value' for key" 格式
-        Pattern pattern = Pattern.compile("Duplicate entry '([^']+)' for key");
-        Matcher matcher = pattern.matcher(message);
-        if (matcher.find()) {
-            String duplicateValue = matcher.group(1);
-            return Result.error( duplicateValue + MessageConstant.ALREADY_EXISTS);
-        }
-        return Result.error(MessageConstant.UNKNOWN_ERROR);
+    private ResponseEntity<ErrorResponse> error(HttpStatus status, String code, String message) {
+        return ResponseEntity.status(status).body(new ErrorResponse(code, message, MDC.get("traceId")));
     }
 
-    /**
-     * 参数校验异常（@Valid / @Validated）
-     * @param ex
-     * @return
-     */
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public Result exceptionHandler(MethodArgumentNotValidException ex) {
-        String message = ex.getBindingResult() != null && ex.getBindingResult().hasErrors()
-                ? ex.getBindingResult().getAllErrors().get(0).getDefaultMessage()
-                : MessageConstant.INVALID_PARAM;
-        log.warn("参数校验失败：{}", message);
-        return Result.error(message);
+    private String safeBusinessMessage(BaseException exception) {
+        return StringUtils.hasText(exception.getMessage()) ? exception.getMessage() : MessageConstant.UNKNOWN_ERROR;
     }
-
-    /**
-     * 参数校验异常（@RequestParam / @PathVariable）
-     * @param ex
-     * @return
-     */
-    @ExceptionHandler(ConstraintViolationException.class)
-    public Result exceptionHandler(ConstraintViolationException ex) {
-        String message = ex.getMessage();
-        log.warn("参数校验失败：{}", message);
-        return Result.error(MessageConstant.INVALID_PARAM);
-    }
-
-    /**
-     * 捕获数字格式化异常（参数类型转换错误）
-     * @param ex
-     * @return
-     */
-    @ExceptionHandler
-    public Result exceptionHandler(NumberFormatException ex) {
-        log.warn("参数类型转换错误：{}", ex.getMessage());
-        return Result.error("参数类型错误，请检查输入是否正确");
-    }
-
 }

@@ -28,6 +28,14 @@ public interface OrderMapper {
 
     int update(Orders orders);
 
+    int transition(@Param("orderId") long orderId, @Param("ownerId") Long ownerId,
+                   @Param("expectedStatus") int expectedStatus, @Param("targetStatus") int targetStatus,
+                   @Param("changedAt") LocalDateTime changedAt);
+
+    Orders selectForUpdate(@Param("orderId") long orderId, @Param("ownerId") Long ownerId);
+
+    int updateTransitionDetails(Orders orders);
+
     List<Orders> selectPageQuery(OrdersPageQueryDTO ordersPageQueryDTO);
 
     List<Orders> selectPageQuery4User(OrdersPageQueryDTO ordersPageQueryDTO);

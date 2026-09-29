@@ -3,10 +3,10 @@ package com.sky.payment.internal.controller;
 import com.alibaba.druid.support.json.JSONUtils;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
-import com.sky.entity.PaymentCallbackLog;
-import com.sky.payment.internal.application.PaymentCallbackLogService;
+import com.sky.payment.api.PaymentCallbackCommand;
+import com.sky.payment.internal.PaymentCallbackService;
+import com.sky.observability.SafeLogIdentifier;
 import com.sky.properties.WeChatProperties;
-import com.sky.order.api.OrderApplicationService;
 import com.wechat.pay.contrib.apache.httpclient.util.AesUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.entity.ContentType;
@@ -19,10 +19,11 @@ import java.io.BufferedReader;
 import java.io.FileInputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.Signature;
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.math.BigInteger;
+import org.springframework.util.StringUtils;
 import java.util.Base64;
 import java.util.HashMap;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 支付回调相关接口
@@ -32,169 +33,57 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class PayNotifyController {
     @Autowired
-    private OrderApplicationService orderService;
-    @Autowired
     private WeChatProperties weChatProperties;
     @Autowired
-    private PaymentCallbackLogService paymentCallbackLogService;
+    private PaymentCallbackService paymentCallbackService;
 
-    /**
-     * 并发控制锁，防止微信重复回调
-     */
-    private final ConcurrentHashMap<String, Boolean> processingSet = new ConcurrentHashMap<>();
-
-    /**
-     * 支付成功回调
-     *
-     * @param request
-     * @param response
-     */
     @RequestMapping("/paySuccess")
     public void paySuccessNotify(HttpServletRequest request, HttpServletResponse response) throws Exception {
-        //读取数据
         String body = readData(request);
-        log.info("收到支付成功回调，bodyLength={}", body == null ? null : body.length());
-
-        if (body == null || body.isEmpty()) {
-            log.error("支付回调请求体为空");
+        if (!StringUtils.hasText(body) || !verifySignature(request, body)) {
             response.setStatus(400);
             return;
         }
-
+        PaymentCallbackCommand command;
         try {
-            JSONObject resultObject = JSON.parseObject(body);
-            
-            // 1. 验证签名（必须步骤）
-            boolean signatureValid = verifySignature(request, body);
-            if (!signatureValid) {
-                log.error("微信支付回调签名验证失败");
+            JSONObject payment = JSON.parseObject(decryptData(body));
+            if (!"SUCCESS".equalsIgnoreCase(payment.getString("trade_state"))) {
+                responseToWeixin(response);
+                return;
+            }
+            JSONObject amount = payment.getJSONObject("amount");
+            String orderNumber = payment.getString("out_trade_no");
+            String transactionId = payment.getString("transaction_id");
+            if (!StringUtils.hasText(weChatProperties.getMchid()) || !weChatProperties.getMchid().equals(payment.getString("mchid"))
+                    || !StringUtils.hasText(weChatProperties.getAppid()) || !weChatProperties.getAppid().equals(payment.getString("appid"))
+                    || !StringUtils.hasText(orderNumber) || orderNumber.length() > 50
+                    || !StringUtils.hasText(transactionId) || transactionId.length() > 64
+                    || amount == null || !"CNY".equals(amount.getString("currency"))) {
                 response.setStatus(400);
                 return;
             }
-
-            // 2. 数据解密
-            String plainText = decryptData(body);
-            log.info("支付回调数据解密成功");
-
-            // 3. 解析核心字段
-            JSONObject jsonObject = JSON.parseObject(plainText);
-            String outTradeNo = jsonObject.getString("out_trade_no");
-            String transactionId = jsonObject.getString("transaction_id");
-            String timeStamp = jsonObject.getString("time_stamp");
-            String successTime = jsonObject.getString("success_time");
-            String tradeType = jsonObject.getString("trade_type");
-            String tradeState = jsonObject.getString("trade_state");
-            String tradeStateDesc = jsonObject.getString("trade_state_desc");
-            String bankType = jsonObject.getString("bank_type");
-            String attach = jsonObject.getString("attach");
-            
-            // 解析金额对象
-            JSONObject amount = jsonObject.getJSONObject("amount");
-            Integer total = amount != null ? amount.getInteger("total") : null;
-            Integer payerTotal = amount != null ? amount.getInteger("payer_total") : null;
-            String currency = amount != null ? amount.getString("currency") : null;
-            String payerCurrency = amount != null ? amount.getString("payer_currency") : null;
-
-            log.info("支付成功回调解析完成，outTradeNo={}, transactionId={}, tradeState={}, total={}分", 
-                    outTradeNo, maskValue(transactionId, 6), tradeState, total);
-
-            if (!"SUCCESS".equalsIgnoreCase(tradeState)) {
-                log.warn("支付状态非成功，忽略处理，outTradeNo={}, tradeState={}", outTradeNo, tradeState);
-                responseToWeixin(response);
-                return;
-            }
-
-            if (outTradeNo == null || transactionId == null) {
-                log.error("支付回调核心字段缺失，outTradeNo={}, transactionId={}", outTradeNo, transactionId);
+            // Reject fractional/overflow minor units instead of silently truncating JSON numbers.
+            int total = amount.getBigDecimal("total").intValueExact();
+            if (total < 0) {
                 response.setStatus(400);
                 return;
             }
-
-            // 4. 幂等性检查：如果已处理过，直接返回成功
-            PaymentCallbackLog existLog = paymentCallbackLogService.getByOutTradeNoAndTransactionId(outTradeNo, transactionId);
-            if (existLog != null && "SUCCESS".equals(existLog.getCallbackStatus())) {
-                log.warn("该支付回调已处理过，outTradeNo={}, transactionId={}, 避免重复处理", outTradeNo, maskValue(transactionId, 6));
-                responseToWeixin(response);
-                return;
-            }
-
-            // 5. 防止并发回调：使用内存锁
-            String lockKey = "LOCK:" + outTradeNo;
-            if (processingSet.putIfAbsent(lockKey, Boolean.TRUE) != null) {
-                log.warn("该支付回调正在处理中，请稍后重试，outTradeNo={}", outTradeNo);
-                responseToWeixin(response);
-                return;
-            }
-
-            try {
-                // 6. 记录回调日志（初始状态）
-                PaymentCallbackLog callbackLog = PaymentCallbackLog.builder()
-                        .outTradeNo(outTradeNo)
-                        .transactionId(transactionId)
-                        .callbackType("PAY_SUCCESS")
-                        .callbackStatus("PROCESSING")
-                        .rawCallbackData(body)
-                        .decryptedData(plainText)
-                        .handleCount(1)
-                        .callbackTime(LocalDateTime.now())
-                        .createTime(LocalDateTime.now())
-                        .updateTime(LocalDateTime.now())
-                        .build();
-                
-                if (existLog == null) {
-                    paymentCallbackLogService.insert(callbackLog);
-                    existLog = callbackLog;
-                }
-
-                // 7. 业务处理：修改订单状态、来单提醒
-                orderService.paySuccessWithValidation(outTradeNo, transactionId, total != null ? total.doubleValue() / 100.0 : null);
-
-                // 8. 更新回调日志为成功
-                callbackLog.setCallbackStatus("SUCCESS");
-                callbackLog.setHandleTime(LocalDateTime.now());
-                callbackLog.setUpdateTime(LocalDateTime.now());
-                if (existLog != null) {
-                    callbackLog.setId(existLog.getId());
-                    paymentCallbackLogService.update(callbackLog);
-                }
-
-                log.info("支付回调处理成功，outTradeNo={}, transactionId={}", outTradeNo, maskValue(transactionId, 6));
-
-            } catch (Exception e) {
-                log.error("支付回调处理失败，outTradeNo={}, transactionId={}", outTradeNo, maskValue(transactionId, 6), e);
-                
-                // 记录错误信息
-                PaymentCallbackLog errorLog = PaymentCallbackLog.builder()
-                        .outTradeNo(outTradeNo)
-                        .transactionId(transactionId)
-                        .callbackType("PAY_SUCCESS")
-                        .callbackStatus("FAIL")
-                        .errorMessage(e.getMessage())
-                        .handleTime(LocalDateTime.now())
-                        .updateTime(LocalDateTime.now())
-                        .build();
-                
-                if (existLog != null) {
-                    errorLog.setId(existLog.getId());
-                    paymentCallbackLogService.update(errorLog);
-                } else {
-                    paymentCallbackLogService.insert(errorLog);
-                }
-                
-                throw e;
-            } finally {
-                processingSet.remove(lockKey);
-            }
-
-            // 9. 给微信响应
+            command = new PaymentCallbackCommand(orderNumber, transactionId, total);
+        } catch (Exception invalidPayload) {
+            // Exception messages from JSON/AES may contain input; never log callback material.
+            log.warn("Invalid verified payment callback payload");
+            response.setStatus(400);
+            return;
+        }
+        try {
+            paymentCallbackService.handle(command);
             responseToWeixin(response);
-
-        } catch (Exception e) {
-            log.error("支付回调处理异常", e);
+        } catch (Exception failure) {
+            log.error("Payment callback transaction failed");
             response.setStatus(500);
         }
     }
-    
+
     /**
      * 退款成功回调
      *
@@ -232,26 +121,21 @@ public class PayNotifyController {
             Integer from = amount != null ? amount.getInteger("from") : null;
             
             // 解析用户收款账户
-            JSONObject userReceivedAccount = jsonObject.getJSONObject("user_received_account");
-            if (userReceivedAccount != null) {
-                log.info("退款到达用户账户：{}", userReceivedAccount.toJSONString());
-            }
-
             log.info("退款回调解析完成，outTradeNo={}, outRefundNo={}, refundId={}, refundStatus={}, refundAmount={}分",
-                    outTradeNo,
-                    maskValue(outRefundNo, 6),
-                    maskValue(refundId, 6),
-                    refundStatus,
+                    SafeLogIdentifier.forLog(outTradeNo, 50),
+                    maskValue(SafeLogIdentifier.forLog(outRefundNo, 64), 6),
+                    maskValue(SafeLogIdentifier.forLog(refundId, 64), 6),
+                    SafeLogIdentifier.forLog(refundStatus, 32),
                     total);
 
             // 幂等性处理：退款成功无需额外处理
-            log.info("退款回调处理完成，outTradeNo={}", outTradeNo);
+            log.info("退款回调处理完成，outTradeNo={}", SafeLogIdentifier.forLog(outTradeNo, 50));
 
             //给微信响应
             responseToWeixin(response);
 
         } catch (Exception e) {
-            log.error("退款回调处理异常", e);
+            log.error("退款回调处理异常，errorType={}", e.getClass().getSimpleName());
             response.setStatus(500);
         }
     }
@@ -263,70 +147,42 @@ public class PayNotifyController {
      * @param body 请求体
      * @return 签名是否有效
      */
-    private boolean verifySignature(HttpServletRequest request, String body) throws Exception {
-        // 获取微信回调头中的签名相关信息
+    private boolean verifySignature(HttpServletRequest request, String body) {
         String timestamp = request.getHeader("Wechatpay-Timestamp");
         String nonce = request.getHeader("Wechatpay-Nonce");
-        String signType = request.getHeader("Wechatpay-Signature-Type");
         String signature = request.getHeader("Wechatpay-Signature");
         String serialNumber = request.getHeader("Wechatpay-Serial");
-
-        log.info("微信支付回调头信息：timestamp={}, nonce={}, signType={}, serialNo={}", 
-                timestamp, nonce, signType, serialNumber);
-
-        // 校验必要参数
-        if (timestamp == null || nonce == null || signature == null) {
-            log.error("缺少必要的签名相关头部");
+        String signType = request.getHeader("Wechatpay-Signature-Type");
+        if (!StringUtils.hasText(timestamp) || !StringUtils.hasText(nonce)
+                || !StringUtils.hasText(signature) || !StringUtils.hasText(serialNumber)
+                || nonce.length() > 128 || nonce.contains("\n") || nonce.contains("\r")
+                || (signType != null && !"WECHATPAY2-SHA256-RSA2048".equals(signType))) {
             return false;
         }
-
-        // 构建验签字符串
-        String message = timestamp + "\n" + nonce + "\n" + body + "\n";
-
-        // 使用 Java Signature 进行验签
-        Signature sign = Signature.getInstance("SHA256withRSA");
-        sign.initVerify(getPlatformPublicKey(serialNumber));
-        sign.update(message.getBytes(StandardCharsets.UTF_8));
-        
-        boolean verified = sign.verify(Base64.getDecoder().decode(signature));
-        
-        log.info("微信支付签名验证结果：{}", verified ? "通过" : "失败");
-        return verified;
+        try {
+            long seconds = Long.parseLong(timestamp);
+            long now = Instant.now().getEpochSecond();
+            if (seconds < now - 300 || seconds > now + 300) {
+                return false;
+            }
+            Signature verifier = Signature.getInstance("SHA256withRSA");
+            verifier.initVerify(getPlatformPublicKey(serialNumber));
+            verifier.update((timestamp + "\n" + nonce + "\n" + body + "\n").getBytes(StandardCharsets.UTF_8));
+            return verifier.verify(Base64.getDecoder().decode(signature));
+        } catch (Exception invalidSignature) {
+            return false;
+        }
     }
 
-    /**
-     * 获取微信平台公钥
-     * 根据证书序列号获取对应的公钥
-     * 
-     * @param serialNumber 证书序列号
-     * @return 平台公钥
-     */
     private java.security.PublicKey getPlatformPublicKey(String serialNumber) throws Exception {
-        // TODO: 需要从微信商户平台下载的证书中读取公钥
-        // 实际项目中应该：
-        // 1. 从配置文件或数据库中获取证书路径
-        // 2. 根据 serialNumber 查找对应的证书
-        // 3. 从证书中提取公钥
-        // 这里提供示例代码框架
-        
-        if (serialNumber == null || serialNumber.isEmpty()) {
-            throw new IllegalArgumentException("微信平台证书序列号为空");
-        }
-
-        if (!serialNumber.equals(weChatProperties.getMchSerialNo())) {
-            log.warn("回调证书序列号与配置不一致，serialNumber={}, configSerial={}",
-                    serialNumber, weChatProperties.getMchSerialNo());
-        }
-
-        String certificatePath = weChatProperties.getWeChatPayCertFilePath();
-        if (certificatePath == null || certificatePath.isEmpty()) {
-            throw new IllegalArgumentException("微信平台证书路径未配置");
-        }
-
         java.security.cert.CertificateFactory factory = java.security.cert.CertificateFactory.getInstance("X.509");
-        try (FileInputStream fis = new FileInputStream(certificatePath)) {
-            java.security.cert.X509Certificate cert = (java.security.cert.X509Certificate) factory.generateCertificate(fis);
-            return cert.getPublicKey();
+        try (FileInputStream input = new FileInputStream(weChatProperties.getWeChatPayCertFilePath())) {
+            java.security.cert.X509Certificate certificate = (java.security.cert.X509Certificate) factory.generateCertificate(input);
+            certificate.checkValidity();
+            if (!certificate.getSerialNumber().equals(new BigInteger(serialNumber, 16))) {
+                throw new IllegalArgumentException("Unknown platform certificate serial");
+            }
+            return certificate.getPublicKey();
         }
     }
 
@@ -357,12 +213,10 @@ public class PayNotifyController {
     private String readData(HttpServletRequest request) throws Exception {
         BufferedReader reader = request.getReader();
         StringBuilder result = new StringBuilder();
-        String line = null;
-        while ((line = reader.readLine()) != null) {
-            if (result.length() > 0) {
-                result.append("\n");
-            }
-            result.append(line);
+        char[] buffer = new char[4096];
+        int count;
+        while ((count = reader.read(buffer)) != -1) {
+            result.append(buffer, 0, count);
         }
         return result.toString();
     }
