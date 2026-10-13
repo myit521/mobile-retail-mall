@@ -14,6 +14,9 @@ import java.util.List;
 public interface OrderMapper {
     int insert(Orders orders);
 
+    @Select("select id from user where id = #{userId} for update")
+    Long lockUserForSubmit(@Param("userId") Long userId);
+
     @Select("select * from orders where user_id = #{userId}")
     List<Orders> selectbyUserId(Long userId);
 

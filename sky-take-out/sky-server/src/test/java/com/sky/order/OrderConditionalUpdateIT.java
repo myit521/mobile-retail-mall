@@ -7,6 +7,8 @@ import com.sky.inventory.api.InventoryService;
 import com.sky.order.internal.application.OrderServiceImpl;
 import com.sky.order.internal.persistence.OrderDetailMapper;
 import com.sky.order.internal.persistence.OrderMapper;
+import com.sky.payment.internal.refund.RefundRequestMapper;
+import com.sky.payment.internal.refund.RefundService;
 import com.sky.support.IntegrationTestBase;
 import com.sky.utils.WeChatPayUtil;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -40,6 +42,7 @@ import static org.mockito.Mockito.*;
 
 class OrderConditionalUpdateIT extends IntegrationTestBase {
     private OrderMapper mapper;
+    private RefundRequestMapper refunds;
     private JdbcTemplate jdbc;
     private TransactionTemplate transaction;
 
@@ -49,6 +52,7 @@ class OrderConditionalUpdateIT extends IntegrationTestBase {
                 MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
         jdbc = new JdbcTemplate(dataSource);
+        jdbc.update("DELETE FROM refund_request WHERE order_id IN (90001, 90002)");
         jdbc.update("DELETE FROM orders WHERE id IN (90001, 90002)");
         jdbc.update("INSERT INTO orders (id, number, status, user_id, order_time, pay_status, amount) "
                 + "VALUES (90001, 'transition-race', 2, 10, NOW(), 1, 12.50), "
@@ -57,10 +61,12 @@ class OrderConditionalUpdateIT extends IntegrationTestBase {
         factory.setDataSource(dataSource);
         org.apache.ibatis.session.Configuration configuration = new org.apache.ibatis.session.Configuration();
         configuration.setMapUnderscoreToCamelCase(true);
+        configuration.addMapper(RefundRequestMapper.class);
         factory.setConfiguration(configuration);
         factory.setMapperLocations(new ClassPathResource("mapper/OrderMapper.xml"));
         SqlSessionFactory sessionFactory = factory.getObject();
         mapper = new SqlSessionTemplate(sessionFactory).getMapper(OrderMapper.class);
+        refunds = new SqlSessionTemplate(sessionFactory).getMapper(RefundRequestMapper.class);
         transaction = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
         transaction.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
         transaction.setTimeout(20);
@@ -84,6 +90,9 @@ class OrderConditionalUpdateIT extends IntegrationTestBase {
         }).when(racingMapper).transition(eq(90001L), eq(10L), eq(2), eq(6), any());
         InventoryService inventory = mock(InventoryService.class);
         WeChatPayUtil payment = mock(WeChatPayUtil.class);
+        doAnswer(invocation -> {
+            return "{\"out_refund_no\":\"R90001\",\"out_trade_no\":\"transition-race\",\"status\":\"PROCESSING\"}";
+        }).when(payment).refund(eq("transition-race"), eq("R90001"), any(), any());
         OrderServiceImpl service = service(racingMapper, inventory, payment);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
@@ -98,10 +107,11 @@ class OrderConditionalUpdateIT extends IntegrationTestBase {
         assertThat(affectedRows).containsExactlyInAnyOrder(1, 0);
         Orders cancelled = mapper.selectbyId(90001L);
         assertThat(cancelled.getStatus()).isEqualTo(6);
-        assertThat(cancelled.getPayStatus()).isEqualTo(2);
+        assertThat(cancelled.getPayStatus()).isEqualTo(1);
         assertThat(cancelled.getCancelTime()).isNotNull();
         assertThat(cancelled.getCancelReason()).isEqualTo("用户取消订单");
-        verify(payment, times(1)).refund(eq("transition-race"), anyString(), any(), any());
+        assertThat(jdbc.queryForObject("SELECT status FROM refund_request WHERE order_id=90001", String.class)).isEqualTo("PROCESSING");
+        verify(payment, times(1)).refund(eq("transition-race"), eq("R90001"), any(), any());
         verify(inventory, times(1)).returnStock(eq(90001L), anyList());
         verify(racingMapper, times(1)).selectForUpdate(90001L, 10L);
     }
@@ -155,6 +165,7 @@ class OrderConditionalUpdateIT extends IntegrationTestBase {
         ReflectionTestUtils.setField(service, "orderDetailMapper", mock(OrderDetailMapper.class));
         ReflectionTestUtils.setField(service, "inventoryService", inventory);
         ReflectionTestUtils.setField(service, "weChatPayUtil", payment);
+        ReflectionTestUtils.setField(service, "refundService", new RefundService(refunds, payment, null));
         return service;
     }
 }

@@ -20,6 +20,7 @@ import org.springframework.stereotype.Component;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.security.PrivateKey;
 import java.security.Signature;
@@ -40,6 +41,7 @@ public class WeChatPayUtil {
 
     //申请退款接口地址
     public static final String REFUNDS = "https://api.mch.weixin.qq.com/v3/refund/domestic/refunds";
+    private static final String TRANSACTIONS = "https://api.mch.weixin.qq.com/v3/pay/transactions/out-trade-no/";
 
     @Autowired
     private WeChatProperties weChatProperties;
@@ -90,7 +92,8 @@ public class WeChatPayUtil {
 
         CloseableHttpResponse response = httpClient.execute(httpPost);
         try {
-            String bodyAsString = EntityUtils.toString(response.getEntity());
+            String bodyAsString = response.getEntity() == null ? "" : EntityUtils.toString(response.getEntity());
+            requireSuccess(response.getStatusLine().getStatusCode(), bodyAsString);
             return bodyAsString;
         } finally {
             httpClient.close();
@@ -114,12 +117,38 @@ public class WeChatPayUtil {
 
         CloseableHttpResponse response = httpClient.execute(httpGet);
         try {
-            String bodyAsString = EntityUtils.toString(response.getEntity());
+            String bodyAsString = response.getEntity() == null ? "" : EntityUtils.toString(response.getEntity());
+            requireSuccess(response.getStatusLine().getStatusCode(), bodyAsString);
             return bodyAsString;
         } finally {
             httpClient.close();
             response.close();
         }
+    }
+
+    public static void requireSuccess(int status, String body) throws IOException {
+        if (status >= 200 && status < 300) return;
+        JSONObject error = null;
+        try { error = JSON.parseObject(body); } catch (Exception ignored) { }
+        throw new WeChatPayHttpException(status, error == null ? null : error.getString("code"));
+    }
+
+    public JSONObject queryTrade(String orderNumber) throws Exception {
+        return JSON.parseObject(get(TRANSACTIONS + orderNumber + "?mchid=" + weChatProperties.getMchid()));
+    }
+
+    public String merchantId() { return weChatProperties.getMchid(); }
+
+    public String appId() { return weChatProperties.getAppid(); }
+
+    public void closeTrade(String orderNumber) throws Exception {
+        JSONObject body = new JSONObject();
+        body.put("mchid", weChatProperties.getMchid());
+        post(TRANSACTIONS + orderNumber + "/close", body.toJSONString());
+    }
+
+    public JSONObject queryRefund(String outRefundNo) throws Exception {
+        return JSON.parseObject(get(REFUNDS + "/" + outRefundNo));
     }
 
     /**

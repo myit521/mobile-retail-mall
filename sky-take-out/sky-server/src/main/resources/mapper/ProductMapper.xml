@@ -106,6 +106,7 @@
         <result property="categoryId" column="category_id"/>
         <result property="price" column="price"/>
         <result property="stock" column="stock"/>
+        <result property="alertThreshold" column="alert_threshold"/>
         <result property="image" column="image"/>
         <result property="description" column="description"/>
         <result property="specs" column="specs"/>
@@ -115,7 +116,7 @@
     </resultMap>
 
     <select id="selectProductPage" resultMap="productMap">
-        select p.id, p.name, p.brand, p.model, p.category_id, p.price, p.stock,
+        select p.id, p.name, p.brand, p.model, p.category_id, p.price, p.stock, p.alert_threshold,
                p.image, p.status, p.update_time, c.name as category_name
         from product p
         left join category c on p.category_id = c.id

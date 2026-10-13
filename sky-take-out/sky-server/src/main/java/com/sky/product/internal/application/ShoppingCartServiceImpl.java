@@ -15,6 +15,7 @@ import com.sky.vo.ProductVO;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -31,7 +32,9 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
     private InventoryService stockService;
 
     @Override
+    @Transactional
     public void add(ShoppingCartDTO shoppingCartDTO) {
+        shoppingCartMapper.lockUserForMutation(BaseContext.getCurrentId());
         ShoppingCart shoppingCart = new ShoppingCart();
         BeanUtils.copyProperties(shoppingCartDTO, shoppingCart);
         // 设置用户id
@@ -78,8 +81,11 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
     }
 
     @Override
+    @Transactional
     public void clean() {
-        shoppingCartMapper.deleteByUserId(BaseContext.getCurrentId());
+        Long userId = BaseContext.getCurrentId();
+        shoppingCartMapper.lockUserForMutation(userId);
+        shoppingCartMapper.deleteByUserId(userId);
     }
 
     /**
@@ -88,7 +94,9 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
      * @param shoppingCartDTO
      */
     @Override
+    @Transactional
     public void sub(ShoppingCartDTO shoppingCartDTO) {
+        shoppingCartMapper.lockUserForMutation(BaseContext.getCurrentId());
         ShoppingCart shoppingCart = new ShoppingCart();
         BeanUtils.copyProperties(shoppingCartDTO, shoppingCart);
         // 设置用户id
@@ -109,8 +117,10 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
     }
 
     @Override
+    @Transactional
     public void restore(List<OrderDetail> orderDetails) {
         Long userId = BaseContext.getCurrentId();
+        shoppingCartMapper.lockUserForMutation(userId);
         for (OrderDetail orderDetail : orderDetails) {
             ShoppingCart shoppingCart = new ShoppingCart();
             shoppingCart.setUserId(userId);

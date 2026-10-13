@@ -22,6 +22,9 @@
             <if test="productId != null">
                 and sl.product_id = #{productId}
             </if>
+            <if test="productName != null and productName != ''">
+                and p.name like concat('%', #{productName}, '%')
+            </if>
             <if test="changeType != null">
                 and sl.change_type = #{changeType}
             </if>

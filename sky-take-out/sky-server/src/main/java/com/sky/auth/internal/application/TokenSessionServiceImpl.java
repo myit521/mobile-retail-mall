@@ -2,6 +2,7 @@ package com.sky.auth.internal.application;
 
 import com.sky.auth.api.TokenSessionService;
 import com.sky.entity.Employee;
+import com.sky.auth.internal.persistence.EmployeeMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -21,6 +22,9 @@ public class TokenSessionServiceImpl implements TokenSessionService {
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
+
+    @Autowired
+    private EmployeeMapper employeeMapper;
 
     // Redis key 前缀
     private static final String ADMIN_SESSION_PREFIX = "login:admin:";
@@ -109,8 +113,35 @@ public class TokenSessionServiceImpl implements TokenSessionService {
      * @return true/false
      */
     public boolean isAdminSessionValid(String sessionId) {
+        if (sessionId == null) return false;
         String redisKey = buildAdminSessionKey(sessionId);
-        return Boolean.TRUE.equals(stringRedisTemplate.hasKey(redisKey));
+        Object storedId = stringRedisTemplate.opsForHash().get(redisKey, "id");
+        Object storedRole = stringRedisTemplate.opsForHash().get(redisKey, "role");
+        if (storedId == null || storedRole == null) return false;
+        try {
+            return isAdminSessionValid(sessionId, Long.valueOf(storedId.toString()), storedRole.toString());
+        } catch (NumberFormatException invalidSession) {
+            return false;
+        }
+    }
+
+    @Override
+    public boolean isAdminSessionValid(String sessionId, Long employeeId) {
+        if (sessionId == null || employeeId == null) return false;
+        Object storedRole = stringRedisTemplate.opsForHash().get(buildAdminSessionKey(sessionId), "role");
+        return storedRole != null && isAdminSessionValid(sessionId, employeeId, storedRole.toString());
+    }
+
+    @Override
+    public boolean isAdminSessionValid(String sessionId, Long employeeId, String role) {
+        if (sessionId == null || employeeId == null || role == null) return false;
+        String key = buildAdminSessionKey(sessionId);
+        Object storedId = stringRedisTemplate.opsForHash().get(key, "id");
+        Object storedRole = stringRedisTemplate.opsForHash().get(key, "role");
+        if (!employeeId.toString().equals(storedId) || !role.equals(storedRole)) return false;
+        Employee employee = employeeMapper.getEmployeeById(employeeId);
+        return employee != null && Integer.valueOf(1).equals(employee.getStatus())
+                && role.equals(employee.getRole());
     }
 
     /**
@@ -121,6 +152,13 @@ public class TokenSessionServiceImpl implements TokenSessionService {
     public boolean isUserSessionValid(String sessionId) {
         String redisKey = buildUserSessionKey(sessionId);
         return Boolean.TRUE.equals(stringRedisTemplate.hasKey(redisKey));
+    }
+
+    @Override
+    public boolean isUserSessionValid(String sessionId, Long userId) {
+        if (sessionId == null || userId == null) return false;
+        Object storedId = stringRedisTemplate.opsForHash().get(buildUserSessionKey(sessionId), "id");
+        return userId.toString().equals(storedId);
     }
 
     /**

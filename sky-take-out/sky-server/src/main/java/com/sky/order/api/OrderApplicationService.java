@@ -10,12 +10,14 @@ import com.sky.vo.OrderVO;
 
 public interface OrderApplicationService {
     /** Atomically marks a verified payment; only the transition winner receives an event payload. */
-    com.sky.order.api.event.OrderPaidMessage completeVerifiedPayment(String orderNumber, java.math.BigDecimal amount);
+    PaymentCompletion completeVerifiedPayment(String orderNumber, java.math.BigDecimal amount);
     OrderSubmitVO submit(OrdersSubmitDTO ordersSubmitDTO);
 
     PageResult pageQuery4User(OrdersPageQueryDTO ordersPageQueryDTO);
 
     OrderVO show(Long id);
+
+    OrderVO showForAdmin(Long id);
 
     Result userCancel(Long id);
 

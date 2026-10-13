@@ -5,6 +5,7 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.sky.payment.api.PaymentCallbackCommand;
 import com.sky.payment.internal.PaymentCallbackService;
+import com.sky.payment.internal.refund.RefundSettlementService;
 import com.sky.observability.SafeLogIdentifier;
 import com.sky.properties.WeChatProperties;
 import com.wechat.pay.contrib.apache.httpclient.util.AesUtil;
@@ -21,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.Signature;
 import java.time.Instant;
 import java.math.BigInteger;
+import java.math.BigDecimal;
 import org.springframework.util.StringUtils;
 import java.util.Base64;
 import java.util.HashMap;
@@ -36,6 +38,8 @@ public class PayNotifyController {
     private WeChatProperties weChatProperties;
     @Autowired
     private PaymentCallbackService paymentCallbackService;
+    @Autowired
+    private RefundSettlementService refundSettlementService;
 
     @RequestMapping("/paySuccess")
     public void paySuccessNotify(HttpServletRequest request, HttpServletResponse response) throws Exception {
@@ -113,22 +117,23 @@ public class PayNotifyController {
             String outRefundNo = jsonObject.getString("out_refund_no");//商户退款单号
             String refundId = jsonObject.getString("refund_id");//微信退款单号
             String refundStatus = jsonObject.getString("refund_status");//退款状态
-            String successTime = jsonObject.getString("success_time");//退款成功时间
-            
-            // 解析退款金额
             JSONObject amount = jsonObject.getJSONObject("amount");
-            Integer total = amount != null ? amount.getInteger("total") : null;
-            Integer from = amount != null ? amount.getInteger("from") : null;
-            
-            // 解析用户收款账户
+            Integer refundMinor = amount == null ? null : amount.getInteger("refund");
+            if (!StringUtils.hasText(outTradeNo) || !StringUtils.hasText(outRefundNo)
+                    || !StringUtils.hasText(refundId) || refundMinor == null || refundMinor < 0
+                    || !weChatProperties.getMchid().equals(jsonObject.getString("mchid"))) {
+                response.setStatus(400);
+                return;
+            }
             log.info("退款回调解析完成，outTradeNo={}, outRefundNo={}, refundId={}, refundStatus={}, refundAmount={}分",
                     SafeLogIdentifier.forLog(outTradeNo, 50),
                     maskValue(SafeLogIdentifier.forLog(outRefundNo, 64), 6),
                     maskValue(SafeLogIdentifier.forLog(refundId, 64), 6),
                     SafeLogIdentifier.forLog(refundStatus, 32),
-                    total);
+                    refundMinor);
 
-            // 幂等性处理：退款成功无需额外处理
+            refundSettlementService.recordResult(outRefundNo, outTradeNo,
+                    BigDecimal.valueOf(refundMinor, 2), refundStatus);
             log.info("退款回调处理完成，outTradeNo={}", SafeLogIdentifier.forLog(outTradeNo, 50));
 
             //给微信响应

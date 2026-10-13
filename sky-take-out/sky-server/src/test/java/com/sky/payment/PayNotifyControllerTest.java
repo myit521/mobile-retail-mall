@@ -4,8 +4,10 @@ import com.sky.payment.internal.controller.PayNotifyController;
 import com.sky.properties.WeChatProperties;
 import com.sky.entity.PaymentCallbackLog;
 import com.sky.order.api.OrderApplicationService;
+import com.sky.order.api.PaymentCompletion;
 import com.sky.order.api.event.OrderPaidMessage;
 import com.sky.payment.internal.PaymentCallbackService;
+import com.sky.payment.internal.refund.RefundSettlementService;
 import com.sky.payment.internal.persistence.PaymentCallbackLogMapper;
 import com.sky.payment.internal.persistence.PaymentEventMapper;
 import com.alibaba.fastjson.JSON;
@@ -39,6 +41,7 @@ class PayNotifyControllerTest {
     private final PaymentCallbackLogMapper callbacks = mock(PaymentCallbackLogMapper.class);
     private final PaymentEventMapper events = mock(PaymentEventMapper.class);
     private final OrderApplicationService orders = mock(OrderApplicationService.class);
+    private final RefundSettlementService refunds = mock(RefundSettlementService.class);
     private final String payment = "{\"out_trade_no\":\"callback-order\",\"transaction_id\":\"wx-98001\",\"trade_state\":\"SUCCESS\",\"mchid\":\"merchant\",\"appid\":\"app\",\"amount\":{\"total\":1234,\"currency\":\"CNY\"}}";
 
     @BeforeEach
@@ -52,9 +55,10 @@ class PayNotifyControllerTest {
         properties.setMchSerialNo("merchant-serial");
         ReflectionTestUtils.setField(controller, "weChatProperties", properties);
         ReflectionTestUtils.setField(controller, "paymentCallbackService", new PaymentCallbackService(callbacks, orders, events));
+        ReflectionTestUtils.setField(controller, "refundSettlementService", refunds);
         when(callbacks.insert(any())).thenReturn(1);
         when(orders.completeVerifiedPayment("callback-order", new BigDecimal("12.34")))
-                .thenReturn(new OrderPaidMessage(98001L, "callback-order", 7L, new BigDecimal("12.34")));
+                .thenReturn(PaymentCompletion.paid(new OrderPaidMessage(98001L, "callback-order", 7L, new BigDecimal("12.34"))));
         when(events.insertPending(anyString(), anyString(), anyLong(), anyString(), anyString())).thenReturn(1);
     }
 
@@ -165,9 +169,9 @@ class PayNotifyControllerTest {
     @Test
     void refundLogsNeverContainAccountPiiCiphertextOrRawTokens() throws Exception {
         String canary = "refund-account-canary@example.com";
-        String refund = "{\"out_trade_no\":\"callback-order\",\"out_refund_no\":\"refund-1\","
+        String refund = "{\"mchid\":\"merchant\",\"out_trade_no\":\"callback-order\",\"out_refund_no\":\"refund-1\","
                 + "\"refund_id\":\"wx-refund-1\",\"refund_status\":\"SUCCESS\","
-                + "\"amount\":{\"total\":1234},\"user_received_account\":{\"email\":\"" + canary
+                + "\"amount\":{\"total\":1234,\"refund\":1234},\"user_received_account\":{\"email\":\"" + canary
                 + "\",\"token\":\"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature\"}}";
         Logger logger = (Logger) LoggerFactory.getLogger(PayNotifyController.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
@@ -180,6 +184,7 @@ class PayNotifyControllerTest {
             String ciphertext = JSON.parseObject(request.getContentAsString())
                     .getJSONObject("resource").getString("ciphertext");
             assertThat(response.getStatus()).isEqualTo(200);
+            verify(refunds).recordResult("refund-1", "callback-order", new BigDecimal("12.34"), "SUCCESS");
             assertThat(appender.list).allSatisfy(entry -> {
                 assertThat(entry.getFormattedMessage()).doesNotContain(canary, "eyJhbGciOiJIUzI1NiJ9", ciphertext);
                 assertThat(entry.getThrowableProxy()).isNull();

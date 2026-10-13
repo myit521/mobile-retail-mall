@@ -5,6 +5,7 @@ import com.sky.dto.MemoPageQueryDTO;
 import com.sky.result.PageResult;
 import com.sky.vo.MemoParseResultVO;
 import com.sky.vo.MemoVO;
+import java.util.List;
 
 /**
  * 备忘录服务接口
@@ -63,6 +64,8 @@ public interface MemoService {
      * @return 各状态数量统计
      */
     MemoStatsVO getStats();
+
+    List<MemoVO> getUserReminders();
     
     /**
      * 备忘录统计VO（内部类）

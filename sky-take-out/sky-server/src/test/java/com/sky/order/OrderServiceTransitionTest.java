@@ -13,6 +13,7 @@ import com.sky.order.internal.messaging.OrderEventPublisher;
 import com.sky.order.internal.persistence.OrderDetailMapper;
 import com.sky.order.internal.persistence.OrderMapper;
 import com.sky.observability.BusinessMetrics;
+import com.sky.payment.api.RefundApplicationService;
 import com.sky.utils.WeChatPayUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,6 +36,7 @@ class OrderServiceTransitionTest {
     private final OrderDetailMapper details = mock(OrderDetailMapper.class);
     private final InventoryService inventory = mock(InventoryService.class);
     private final WeChatPayUtil payment = mock(WeChatPayUtil.class);
+    private final RefundApplicationService refunds = mock(RefundApplicationService.class);
     private final OrderEventPublisher events = mock(OrderEventPublisher.class);
     private final OrderServiceImpl service = new OrderServiceImpl();
     private final BusinessMetrics metrics = mock(BusinessMetrics.class);
@@ -45,6 +47,7 @@ class OrderServiceTransitionTest {
         ReflectionTestUtils.setField(service, "orderDetailMapper", details);
         ReflectionTestUtils.setField(service, "inventoryService", inventory);
         ReflectionTestUtils.setField(service, "weChatPayUtil", payment);
+        ReflectionTestUtils.setField(service, "refundService", refunds);
         ReflectionTestUtils.setField(service, "orderEventPublisher", events);
         ReflectionTestUtils.setField(service, "metrics", metrics);
         BaseContext.setCurrentId(10L);
@@ -56,9 +59,9 @@ class OrderServiceTransitionTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"user", "admin", "reject", "timeout"})
+    @ValueSource(strings = {"user", "admin", "reject"})
     void onlyCancellationWinnerChangesMetadataAndReturnsStock(String operation) throws Exception {
-        Orders order = order(operation.equals("timeout") ? 1 : 2);
+        Orders order = order(2);
         stubRead(order);
         when(mapper.transition(eq(1L), nullable(Long.class), eq(order.getStatus()), eq(6), any()))
                 .thenReturn(1);
@@ -66,30 +69,28 @@ class OrderServiceTransitionTest {
 
         cancel(operation);
 
-        InOrder sequence = inOrder(mapper, payment, inventory);
+        InOrder sequence = inOrder(mapper, refunds, inventory);
         sequence.verify(mapper).transition(eq(1L), eq(operation.equals("user") ? 10L : null),
                 eq(order.getStatus()), eq(6), any(LocalDateTime.class));
-        if (!operation.equals("timeout")) {
-            sequence.verify(payment).refund(eq("order-1"), anyString(), eq(new BigDecimal("12.50")), eq(new BigDecimal("12.50")));
-        }
+        sequence.verify(refunds).recordIntent(order);
         sequence.verify(mapper).updateTransitionDetails(argThat(update -> update.getStatus() == null
                 && update.getId().equals(1L)
-                && (operation.equals("timeout") || update.getPayStatus().equals(2))));
+                && update.getPayStatus() == null));
         sequence.verify(inventory).returnStock(eq(1L), anyList());
         verifyNoInteractions(metrics);
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"user", "admin", "reject", "timeout"})
+    @ValueSource(strings = {"user", "admin", "reject"})
     void cancellationLoserAtSameTargetHasNoSideEffects(String operation) {
-        stubRead(order(operation.equals("timeout") ? 1 : 2));
+        stubRead(order(2));
         when(mapper.selectForUpdate(eq(1L), nullable(Long.class))).thenReturn(order(6));
 
         cancel(operation);
 
         verify(mapper, never()).update(any());
         verify(mapper, never()).updateTransitionDetails(any());
-        verifyNoInteractions(payment, inventory, details);
+        verifyNoInteractions(payment, refunds, inventory, details);
         BusinessMetrics.OrderOperation expected = operation.equals("reject")
                 ? BusinessMetrics.OrderOperation.REJECT
                 : operation.equals("timeout") ? BusinessMetrics.OrderOperation.TIMEOUT
@@ -192,9 +193,14 @@ class OrderServiceTransitionTest {
     @ValueSource(booleans = {false, true})
     void paymentLosingToCancellationCannotResurrectOrder(boolean legacy) {
         stubRead(order(1));
-        when(mapper.selectForUpdate(1L, null)).thenReturn(order(6));
-        assertThatThrownBy(() -> pay(legacy)).isInstanceOf(OrderBusinessException.class);
+        Orders canceled = order(6);
+        canceled.setPayStatus(Orders.UN_PAID);
+        when(mapper.selectForUpdate(1L, null)).thenReturn(canceled);
+        when(mapper.updateTransitionDetails(any())).thenReturn(1);
+        pay(legacy);
         verify(mapper, never()).update(any());
+        verify(mapper).updateTransitionDetails(argThat(update -> Orders.PAID.equals(update.getPayStatus())));
+        verify(refunds).recordIntent(canceled);
         verifyNoInteractions(events);
         verify(metrics).orderConflict(BusinessMetrics.OrderOperation.PAYMENT);
     }

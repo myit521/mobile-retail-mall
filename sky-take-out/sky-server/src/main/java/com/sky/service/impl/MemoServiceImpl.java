@@ -49,9 +49,11 @@ public class MemoServiceImpl implements MemoService {
                 memoDTO == null ? null : memoDTO.getEnableAiParse());
         
         Long userId = BaseContext.getCurrentId();
+        String ownerType = currentOwnerType();
         
         Memo memo = Memo.builder()
                 .userId(userId)
+                .ownerType(ownerType)
                 .content(memoDTO.getContent())
                 .priority(memoDTO.getPriority() != null ? memoDTO.getPriority() : Memo.PRIORITY_NORMAL)
                 .status(Memo.STATUS_PENDING)
@@ -111,7 +113,7 @@ public class MemoServiceImpl implements MemoService {
         log.info("更新备忘录：{}", memoDTO.getId());
         
         Long userId = BaseContext.getCurrentId();
-        Memo existingMemo = memoMapper.getByIdAndUserId(memoDTO.getId(), userId);
+        Memo existingMemo = memoMapper.getByIdAndUserId(memoDTO.getId(), userId, currentOwnerType());
         
         if (existingMemo == null) {
             throw new BaseException("备忘录不存在或无权限");
@@ -119,6 +121,8 @@ public class MemoServiceImpl implements MemoService {
         
         Memo memo = Memo.builder()
                 .id(memoDTO.getId())
+                .userId(userId)
+                .ownerType(currentOwnerType())
                 .content(memoDTO.getContent())
                 .priority(memoDTO.getPriority())
                 .dueDate(memoDTO.getDueDate())
@@ -151,7 +155,7 @@ public class MemoServiceImpl implements MemoService {
         log.info("更新备忘录状态，ID：{}，新状态：{}", id, status);
         
         Long userId = BaseContext.getCurrentId();
-        Memo existingMemo = memoMapper.getByIdAndUserId(id, userId);
+        Memo existingMemo = memoMapper.getByIdAndUserId(id, userId, currentOwnerType());
         
         if (existingMemo == null) {
             throw new BaseException("备忘录不存在或无权限");
@@ -159,6 +163,8 @@ public class MemoServiceImpl implements MemoService {
         
         Memo memo = Memo.builder()
                 .id(id)
+                .userId(userId)
+                .ownerType(currentOwnerType())
                 .status(status)
                 .build();
         
@@ -172,7 +178,7 @@ public class MemoServiceImpl implements MemoService {
         log.info("删除备忘录，ID：{}", id);
         
         Long userId = BaseContext.getCurrentId();
-        memoMapper.deleteByIdAndUserId(id, userId);
+        memoMapper.deleteByIdAndUserId(id, userId, currentOwnerType());
         
         log.info("备忘录删除成功");
     }
@@ -180,9 +186,9 @@ public class MemoServiceImpl implements MemoService {
     @Override
     public MemoVO getById(Long id) {
         Long userId = BaseContext.getCurrentId();
-        Memo memo = memoMapper.getByIdAndUserId(id, userId);
+        Memo memo = memoMapper.getByIdAndUserId(id, userId, currentOwnerType());
         
-        if (memo == null) {
+        if (memo == null || !currentOwnerType().equals(memo.getOwnerType())) {
             throw new BaseException("备忘录不存在或无权限");
         }
         
@@ -204,7 +210,7 @@ public class MemoServiceImpl implements MemoService {
         Integer pageSize = queryDTO.getPageSize() != null ? queryDTO.getPageSize() : 10;
         
         PageHelper.startPage(pageNum, pageSize);
-        Page<Memo> page = (Page<Memo>) memoMapper.pageQuery(queryDTO, userId);
+        Page<Memo> page = (Page<Memo>) memoMapper.pageQuery(queryDTO, userId, currentOwnerType());
         
         List<MemoVO> voList = page.getResult().stream()
                 .map(this::convertToVO)
@@ -232,13 +238,23 @@ public class MemoServiceImpl implements MemoService {
         Long userId = BaseContext.getCurrentId();
         
         MemoStatsVO stats = new MemoStatsVO();
-        stats.pendingCount = memoMapper.countByUserIdAndStatus(userId, Memo.STATUS_PENDING);
-        stats.processingCount = memoMapper.countByUserIdAndStatus(userId, Memo.STATUS_PROCESSING);
-        stats.completedCount = memoMapper.countByUserIdAndStatus(userId, Memo.STATUS_COMPLETED);
-        stats.cancelledCount = memoMapper.countByUserIdAndStatus(userId, Memo.STATUS_CANCELLED);
-        stats.totalCount = memoMapper.countByUserIdAndStatus(userId, null);
+        String ownerType = currentOwnerType();
+        stats.pendingCount = memoMapper.countByUserIdAndStatus(userId, ownerType, Memo.STATUS_PENDING);
+        stats.processingCount = memoMapper.countByUserIdAndStatus(userId, ownerType, Memo.STATUS_PROCESSING);
+        stats.completedCount = memoMapper.countByUserIdAndStatus(userId, ownerType, Memo.STATUS_COMPLETED);
+        stats.cancelledCount = memoMapper.countByUserIdAndStatus(userId, ownerType, Memo.STATUS_CANCELLED);
+        stats.totalCount = memoMapper.countByUserIdAndStatus(userId, ownerType, null);
         
         return stats;
+    }
+
+    @Override
+    public List<MemoVO> getUserReminders() {
+        if (!"USER".equals(currentOwnerType())) {
+            throw new BaseException("备忘录访问身份无效");
+        }
+        return memoMapper.selectUserReminders(BaseContext.getCurrentId()).stream()
+                .map(this::convertToVO).collect(Collectors.toList());
     }
     
     /**
@@ -267,5 +283,13 @@ public class MemoServiceImpl implements MemoService {
         }
         
         return vo;
+    }
+
+    private String currentOwnerType() {
+        String ownerType = BaseContext.getCurrentOwnerType();
+        if (!"ADMIN".equals(ownerType) && !"USER".equals(ownerType)) {
+            throw new BaseException("备忘录访问身份无效");
+        }
+        return ownerType;
     }
 }

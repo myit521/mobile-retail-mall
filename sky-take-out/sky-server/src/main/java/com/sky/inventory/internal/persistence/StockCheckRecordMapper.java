@@ -3,6 +3,7 @@ package com.sky.inventory.internal.persistence;
 import com.sky.entity.StockCheckRecord;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -36,4 +37,7 @@ public interface StockCheckRecordMapper {
      * @param record
      */
     void update(StockCheckRecord record);
+
+    @Update("update stock_check_record set status = 1, update_time = now() where id = #{id} and status = 0")
+    int confirmPending(Long id);
 }

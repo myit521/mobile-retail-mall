@@ -6,6 +6,7 @@
     <resultMap id="MemoResultMap" type="com.sky.entity.Memo">
         <id column="id" property="id"/>
         <result column="user_id" property="userId"/>
+        <result column="owner_type" property="ownerType"/>
         <result column="title" property="title"/>
         <result column="content" property="content"/>
         <result column="parsed_content" property="parsedContent"/>
@@ -22,10 +23,10 @@
     <!-- 插入备忘录 -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO memo (
-            user_id, title, content, parsed_content, priority, status, 
+            user_id, owner_type, title, content, parsed_content, priority, status,
             due_date, remind_time, is_reminded, tags, create_time, update_time
         ) VALUES (
-            #{userId}, #{title}, #{content}, #{parsedContent}, #{priority}, #{status},
+            #{userId}, #{ownerType}, #{title}, #{content}, #{parsedContent}, #{priority}, #{status},
             #{dueDate}, #{remindTime}, #{isReminded}, #{tags}, #{createTime}, #{updateTime}
         )
     </insert>
@@ -45,7 +46,7 @@
             <if test="tags != null">tags = #{tags},</if>
             update_time = NOW()
         </set>
-        WHERE id = #{id}
+        WHERE id = #{id} AND user_id = #{userId} AND owner_type = #{ownerType}
     </update>
 
     <!-- 根据ID查询 -->
@@ -55,18 +56,18 @@
 
     <!-- 根据ID和用户ID查询 -->
     <select id="getByIdAndUserId" resultMap="MemoResultMap">
-        SELECT * FROM memo WHERE id = #{id} AND user_id = #{userId}
+        SELECT * FROM memo WHERE id = #{id} AND user_id = #{userId} AND owner_type = #{ownerType}
     </select>
 
     <!-- 删除备忘录 -->
     <delete id="deleteByIdAndUserId">
-        DELETE FROM memo WHERE id = #{id} AND user_id = #{userId}
+        DELETE FROM memo WHERE id = #{id} AND user_id = #{userId} AND owner_type = #{ownerType}
     </delete>
 
     <!-- 分页查询 -->
     <select id="pageQuery" resultMap="MemoResultMap">
         SELECT * FROM memo
-        WHERE user_id = #{userId}
+        WHERE user_id = #{userId} AND owner_type = #{ownerType}
         <if test="query.status != null">
             AND status = #{query.status}
         </if>
@@ -105,6 +106,18 @@
         </foreach>
     </update>
 
+    <insert id="insertUserReminder">
+        INSERT INTO memo_reminder (memo_id, user_id)
+        SELECT id, user_id FROM memo WHERE id = #{memoId} AND owner_type = 'USER'
+        ON DUPLICATE KEY UPDATE memo_id = memo_id
+    </insert>
+
+    <select id="selectUserReminders" resultMap="MemoResultMap">
+        SELECT m.* FROM memo_reminder r JOIN memo m ON m.id = r.memo_id
+        WHERE r.user_id = #{userId} AND m.user_id = #{userId} AND m.owner_type = 'USER'
+        ORDER BY r.create_time DESC
+    </select>
+
     <!-- 查询已过期的待处理备忘录 -->
     <select id="selectOverdue" resultMap="MemoResultMap">
         SELECT * FROM memo 
@@ -116,7 +129,7 @@
     <!-- 统计用户各状态备忘录数量 -->
     <select id="countByUserIdAndStatus" resultType="java.lang.Integer">
         SELECT COUNT(*) FROM memo 
-        WHERE user_id = #{userId}
+        WHERE user_id = #{userId} AND owner_type = #{ownerType}
         <if test="status != null">
             AND status = #{status}
         </if>

@@ -20,7 +20,13 @@ public interface TokenSessionService {
 
     boolean isAdminSessionValid(String sessionId);
 
+    boolean isAdminSessionValid(String sessionId, Long employeeId);
+
+    boolean isAdminSessionValid(String sessionId, Long employeeId, String role);
+
     boolean isUserSessionValid(String sessionId);
+
+    boolean isUserSessionValid(String sessionId, Long userId);
 
     void removeAdminSession(String sessionId);
 

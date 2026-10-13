@@ -3,6 +3,7 @@ package com.sky.payment.internal;
 import com.alibaba.fastjson.JSON;
 import com.sky.entity.PaymentCallbackLog;
 import com.sky.order.api.OrderApplicationService;
+import com.sky.order.api.PaymentCompletion;
 import com.sky.order.api.event.OrderPaidMessage;
 import com.sky.observability.MdcContext;
 import com.sky.observability.BusinessMetrics;
@@ -27,7 +28,7 @@ import java.util.Map;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class PaymentCallbackService {
+public class PaymentCallbackService implements com.sky.payment.api.VerifiedPaymentHandler {
     private final PaymentCallbackLogMapper callbacks;
     private final OrderApplicationService orders;
     private final PaymentEventMapper events;
@@ -62,10 +63,15 @@ public class PaymentCallbackService {
             if (metrics != null) metrics.duplicateCallback();
             return PaymentCallbackResult.DUPLICATE;
         }
-        OrderPaidMessage paid = orders.completeVerifiedPayment(command.getOrderNumber(), BigDecimal.valueOf(command.getTotal(), 2));
-        if (paid == null) {
+        PaymentCompletion completion = orders.completeVerifiedPayment(command.getOrderNumber(), BigDecimal.valueOf(command.getTotal(), 2));
+        if (completion == null) {
             throw new IllegalStateException("Order was already paid by another transaction");
         }
+        if (completion.compensating()) {
+            log.info("Late verified payment queued for compensating refund, orderNo={}", command.getOrderNumber());
+            return PaymentCallbackResult.APPLIED;
+        }
+        OrderPaidMessage paid = completion.paidEvent();
         String eventId = UUID.randomUUID().toString();
         if (events.insertPending(eventId, command.getTransactionId(), paid.getOrderId(),
                 "ORDER_PAID:" + paid.getOrderId(), JSON.toJSONString(paid)) != 1) {

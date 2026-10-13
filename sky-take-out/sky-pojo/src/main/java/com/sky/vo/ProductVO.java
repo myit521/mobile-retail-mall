@@ -31,6 +31,8 @@ public class ProductVO implements Serializable {
     private BigDecimal price;
     //库存
     private Integer stock;
+    //低库存预警阈值
+    private Integer alertThreshold;
     //图片
     private String image;
     //描述信息

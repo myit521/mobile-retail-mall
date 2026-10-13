@@ -18,6 +18,9 @@ public interface InventoryProductMapper {
     @Select("select id, name, stock, alert_threshold from product where id = #{id}")
     Product selectProductById(Long id);
 
+    @Select("select id, name, stock, alert_threshold from product where id = #{id} for update")
+    Product selectProductForUpdate(Long id);
+
     @Update("update product set stock = stock - #{quantity} "
             + "where id = #{productId} and #{quantity} > 0 and stock >= #{quantity}")
     int deductIfAvailable(@Param("productId") long productId, @Param("quantity") int quantity);
@@ -35,8 +38,9 @@ public interface InventoryProductMapper {
     @Update("update product set stock = stock + #{quantity} where id = #{productId}")
     int returnStock(@Param("productId") Long productId, @Param("quantity") Integer quantity);
 
-    @Update("update product set stock = #{stock} where id = #{productId}")
-    void updateStock(@Param("productId") Long productId, @Param("stock") Integer stock);
+    @Update("update product set stock = stock + #{quantity} "
+            + "where id = #{productId} and stock + #{quantity} >= 0")
+    int adjustIfAvailable(@Param("productId") Long productId, @Param("quantity") Integer quantity);
 
     @Select("select id, name, stock, alert_threshold from product where status = 1 and stock <= alert_threshold")
     List<Product> selectLowStock();

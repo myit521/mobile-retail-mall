@@ -13,7 +13,7 @@ import org.apache.ibatis.annotations.Select;
 import java.util.List;
 
 @Mapper
-public interface ProductMapper {
+public interface ProductMapper extends com.sky.product.api.ProductCatalog {
 
     /**
      * 根据分类id查询商品数量

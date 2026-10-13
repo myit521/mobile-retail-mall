@@ -3,12 +3,14 @@ package com.sky.task;
 import com.sky.entity.Memo;
 import com.sky.mapper.MemoMapper;
 import com.sky.notification.api.OrderNotificationPort;
+import com.sky.notification.api.AdminSessionNotifier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +27,8 @@ public class MemoTask {
     private MemoMapper memoMapper;
     @Autowired
     private OrderNotificationPort notificationPort;
+    @Autowired
+    private AdminSessionNotifier webSocketSessions;
     
     /**
      * 检查需要提醒的备忘录
@@ -43,42 +47,34 @@ public class MemoTask {
         
         log.info("发现{}条需要提醒的备忘录", memoList.size());
         
-        // 按用户分组发送提醒
-        Map<Long, List<Memo>> userMemoMap = memoList.stream()
-                .collect(Collectors.groupingBy(Memo::getUserId));
-        
-        for (Map.Entry<Long, List<Memo>> entry : userMemoMap.entrySet()) {
-            Long userId = entry.getKey();
-            List<Memo> userMemos = entry.getValue();
-            
-            // 通过WebSocket发送提醒
-            for (Memo memo : userMemos) {
-                Map<String, Object> message = new HashMap<>();
-                message.put("type", "MEMO_REMIND");
-                message.put("memoId", memo.getId());
-                message.put("title", memo.getTitle());
-                message.put("content", memo.getContent());
-                message.put("dueDate", memo.getDueDate() != null ? memo.getDueDate().toString() : null);
-                message.put("priority", memo.getPriority());
+        List<Long> deliveredIds = new ArrayList<>();
+        for (Memo memo : memoList) {
+            Long userId = memo.getUserId();
+            try {
+                if ("USER".equals(memo.getOwnerType())) {
+                    // A durable inbox row delivers the reminder even when the user is offline.
+                    memoMapper.insertUserReminder(memo.getId());
+                    deliveredIds.add(memo.getId());
+                } else if ("ADMIN".equals(memo.getOwnerType())) {
+                    Map<String, Object> message = new HashMap<>();
+                    message.put("type", "MEMO_REMIND");
+                    message.put("memoId", memo.getId());
+                    message.put("title", memo.getTitle());
+                    message.put("content", memo.getContent());
+                    message.put("dueDate", memo.getDueDate() != null ? memo.getDueDate().toString() : null);
+                    message.put("priority", memo.getPriority());
                 
-                try {
-                    notificationPort.sendTo(
-                            com.alibaba.fastjson.JSON.toJSONString(message), 
-                            userId.toString());
-                    log.info("已向用户{}发送备忘录提醒，备忘录ID：{}", userId, memo.getId());
-                } catch (Exception e) {
-                    log.warn("发送备忘录提醒失败，用户ID={}，memoId={}，errorType={}", userId, memo.getId(), e.getClass().getSimpleName());
+                    if (webSocketSessions.sendTo(userId.toString(), com.alibaba.fastjson.JSON.toJSONString(message))) {
+                        deliveredIds.add(memo.getId());
+                    }
                 }
+            } catch (Exception e) {
+                log.warn("发送备忘录提醒失败，用户ID={}，memoId={}，errorType={}", userId, memo.getId(), e.getClass().getSimpleName());
             }
         }
+        if (!deliveredIds.isEmpty()) memoMapper.batchUpdateReminded(deliveredIds);
         
-        // 批量更新提醒状态
-        List<Long> ids = memoList.stream()
-                .map(Memo::getId)
-                .collect(Collectors.toList());
-        memoMapper.batchUpdateReminded(ids);
-        
-        log.info("备忘录提醒任务完成，已处理{}条", ids.size());
+        log.info("备忘录提醒任务完成，已处理{}条", deliveredIds.size());
     }
     
     /**
@@ -99,8 +95,18 @@ public class MemoTask {
         
         log.info("发现{}条过期的备忘录", overdueList.size());
         
-        // 通过WebSocket通知用户有过期的备忘录
+        // User reminders are persisted; employee reminders use the admin WebSocket.
+        for (Memo memo : overdueList) {
+            if ("USER".equals(memo.getOwnerType())) {
+                try {
+                    memoMapper.insertUserReminder(memo.getId());
+                } catch (Exception e) {
+                    log.warn("保存备忘录过期提醒失败，memoId={}，errorType={}", memo.getId(), e.getClass().getSimpleName());
+                }
+            }
+        }
         Map<Long, List<Memo>> userMemoMap = overdueList.stream()
+                .filter(memo -> "ADMIN".equals(memo.getOwnerType()))
                 .collect(Collectors.groupingBy(Memo::getUserId));
         
         for (Map.Entry<Long, List<Memo>> entry : userMemoMap.entrySet()) {

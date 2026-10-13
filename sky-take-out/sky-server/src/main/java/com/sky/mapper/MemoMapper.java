@@ -39,14 +39,14 @@ public interface MemoMapper {
      * @param userId 用户ID
      * @return 备忘录实体
      */
-    Memo getByIdAndUserId(@Param("id") Long id, @Param("userId") Long userId);
+    Memo getByIdAndUserId(@Param("id") Long id, @Param("userId") Long userId, @Param("ownerType") String ownerType);
     
     /**
      * 删除备忘录
      * @param id 主键ID
      * @param userId 用户ID
      */
-    void deleteByIdAndUserId(@Param("id") Long id, @Param("userId") Long userId);
+    void deleteByIdAndUserId(@Param("id") Long id, @Param("userId") Long userId, @Param("ownerType") String ownerType);
     
     /**
      * 分页查询
@@ -54,7 +54,7 @@ public interface MemoMapper {
      * @param userId 用户ID
      * @return 备忘录列表
      */
-    List<Memo> pageQuery(@Param("query") MemoPageQueryDTO queryDTO, @Param("userId") Long userId);
+    List<Memo> pageQuery(@Param("query") MemoPageQueryDTO queryDTO, @Param("userId") Long userId, @Param("ownerType") String ownerType);
     
     /**
      * 查询需要提醒的备忘录
@@ -68,6 +68,10 @@ public interface MemoMapper {
      * @param ids ID列表
      */
     void batchUpdateReminded(@Param("ids") List<Long> ids);
+
+    int insertUserReminder(@Param("memoId") Long memoId);
+
+    List<Memo> selectUserReminders(@Param("userId") Long userId);
     
     /**
      * 查询已过期的待处理备忘录
@@ -82,5 +86,5 @@ public interface MemoMapper {
      * @param status 状态
      * @return 数量
      */
-    Integer countByUserIdAndStatus(@Param("userId") Long userId, @Param("status") Integer status);
+    Integer countByUserIdAndStatus(@Param("userId") Long userId, @Param("ownerType") String ownerType, @Param("status") Integer status);
 }

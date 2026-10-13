@@ -5,11 +5,15 @@ import com.sky.order.internal.application.OrderServiceImpl;
 import com.sky.order.internal.persistence.OrderMapper;
 import com.sky.payment.api.PaymentCallbackCommand;
 import com.sky.payment.api.PaymentCallbackResult;
+import com.sky.payment.api.VerifiedPaymentHandler;
 import com.sky.payment.internal.PaymentCallbackService;
 import com.sky.payment.internal.persistence.PaymentCallbackLogMapper;
 import com.sky.payment.internal.persistence.PaymentEventMapper;
+import com.sky.payment.internal.refund.RefundRequestMapper;
+import com.sky.payment.internal.refund.RefundService;
 import com.sky.support.IntegrationTestBase;
 import com.sky.observability.BusinessMetrics;
+import com.sky.utils.WeChatPayUtil;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,7 +37,7 @@ import static org.assertj.core.api.Assertions.*;
 
 class PaymentCallbackServiceIT extends IntegrationTestBase {
     private JdbcTemplate jdbc;
-    private PaymentCallbackService service;
+    private VerifiedPaymentHandler service;
     private PaymentEventMapper events;
     private final AtomicBoolean failAfterEventInsert = new AtomicBoolean();
     private SimpleMeterRegistry meterRegistry;
@@ -43,6 +47,7 @@ class PaymentCallbackServiceIT extends IntegrationTestBase {
         DriverManagerDataSource ds = new DriverManagerDataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
         Flyway.configure().dataSource(ds).locations("classpath:db/migration").load().migrate();
         jdbc = new JdbcTemplate(ds);
+        jdbc.update("DELETE FROM refund_request WHERE order_id IN (98001, 98002)");
         jdbc.update("DELETE FROM outbox_event WHERE aggregate_id IN (98001, 98002)");
         jdbc.update("DELETE FROM payment_callback_log WHERE out_trade_no IN ('callback-order', 'other-order')");
         jdbc.update("DELETE FROM orders WHERE id IN (98001, 98002)");
@@ -52,12 +57,15 @@ class PaymentCallbackServiceIT extends IntegrationTestBase {
         org.apache.ibatis.session.Configuration config = new org.apache.ibatis.session.Configuration();
         config.setMapUnderscoreToCamelCase(true);
         config.addMapper(PaymentEventMapper.class);
+        config.addMapper(RefundRequestMapper.class);
         factory.setConfiguration(config);
         factory.setMapperLocations(new ClassPathResource("mapper/OrderMapper.xml"), new ClassPathResource("mapper/PaymentCallbackLogMapper.xml"));
         SqlSessionTemplate session = new SqlSessionTemplate(factory.getObject());
         DataSourceTransactionManager tm = new DataSourceTransactionManager(ds);
         OrderServiceImpl orderTarget = new OrderServiceImpl();
         ReflectionTestUtils.setField(orderTarget, "orderMapper", session.getMapper(OrderMapper.class));
+        ReflectionTestUtils.setField(orderTarget, "refundService", new RefundService(
+                session.getMapper(RefundRequestMapper.class), org.mockito.Mockito.mock(WeChatPayUtil.class), null));
         OrderApplicationService orders = (OrderApplicationService) proxy(orderTarget, tm);
         PaymentEventMapper realEvents = session.getMapper(PaymentEventMapper.class);
         events = (eventId, correlationId, aggregateId, businessKey, payload) -> {
@@ -70,7 +78,7 @@ class PaymentCallbackServiceIT extends IntegrationTestBase {
         PaymentCallbackService target = new PaymentCallbackService(session.getMapper(PaymentCallbackLogMapper.class), orders, events);
         meterRegistry = new SimpleMeterRegistry();
         ReflectionTestUtils.setField(target, "metrics", new BusinessMetrics(meterRegistry));
-        service = (PaymentCallbackService) proxy(target, tm);
+        service = (VerifiedPaymentHandler) proxy(target, tm);
     }
 
     @Test
@@ -113,14 +121,16 @@ class PaymentCallbackServiceIT extends IntegrationTestBase {
     }
 
     @Test
-    void amountMismatchAndCancelledOrderLeaveNoCallbackOrEvent() {
+    void amountMismatchIsRejectedButLatePaymentIsDurablyQueuedForRefund() {
         assertThatThrownBy(() -> service.handle(new PaymentCallbackCommand("callback-order", "wx-98001", 1233))).isInstanceOf(RuntimeException.class);
         assertUnchanged();
         jdbc.update("UPDATE orders SET status = 6 WHERE id = 98001");
-        assertThatThrownBy(() -> service.handle(command())).isInstanceOf(RuntimeException.class);
-        assertThat(count("payment_callback_log")).isZero();
+        assertThat(service.handle(command())).isEqualTo(PaymentCallbackResult.APPLIED);
+        assertThat(count("payment_callback_log")).isEqualTo(1);
         assertThat(count("outbox_event")).isZero();
         assertThat(jdbc.queryForObject("SELECT status FROM orders WHERE id=98001", Integer.class)).isEqualTo(6);
+        assertThat(jdbc.queryForObject("SELECT pay_status FROM orders WHERE id=98001", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM refund_request WHERE order_id=98001 AND out_refund_no='R98001'", Integer.class)).isEqualTo(1);
     }
 
     @Test

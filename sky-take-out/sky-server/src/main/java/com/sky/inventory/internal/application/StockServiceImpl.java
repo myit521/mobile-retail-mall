@@ -169,7 +169,7 @@ public class StockServiceImpl implements InventoryService {
         Long productId = stockAdjustDTO.getProductId();
         Integer quantity = stockAdjustDTO.getQuantity();
 
-        Product product = productMapper.selectProductById(productId);
+        Product product = productMapper.selectProductForUpdate(productId);
         if (product == null) {
             throw new BaseException(MessageConstant.STOCK_PRODUCT_NOT_FOUND);
         }
@@ -180,7 +180,9 @@ public class StockServiceImpl implements InventoryService {
         }
 
         // 更新库存
-        productMapper.updateStock(productId, newStock);
+        if (quantity != 0 && productMapper.adjustIfAvailable(productId, quantity) == 0) {
+            throw new BaseException("调整后库存不能为负数");
+        }
 
         // 记录日志
         StockLog stockLog = StockLog.builder()
@@ -215,6 +217,9 @@ public class StockServiceImpl implements InventoryService {
     @Override
     @Transactional
     public void submitCheckRecord(StockCheckRecordDTO dto) {
+        if (dto.getActualStock() == null || dto.getActualStock() < 0) {
+            throw new BaseException("实盘库存不能为负数");
+        }
         StockCheckPlan plan = stockCheckPlanMapper.selectById(dto.getPlanId());
         if (plan == null) {
             throw new BaseException("盘点计划不存在");
@@ -260,15 +265,24 @@ public class StockServiceImpl implements InventoryService {
             throw new BaseException("盘点记录已处理");
         }
 
-        Product product = productMapper.selectProductById(record.getProductId());
+        if (record.getActualStock() == null || record.getActualStock() < 0) {
+            throw new BaseException("实盘库存不能为负数");
+        }
+        if (stockCheckRecordMapper.confirmPending(recordId) == 0) {
+            throw new BaseException("盘点记录已处理");
+        }
+
+        Product product = productMapper.selectProductForUpdate(record.getProductId());
         if (product == null) {
             throw new BaseException(MessageConstant.STOCK_PRODUCT_NOT_FOUND);
         }
 
         int diff = record.getDiffQuantity();
         if (diff != 0) {
-            // 调整库存到实盘数量
-            productMapper.updateStock(record.getProductId(), record.getActualStock());
+            int newStock = product.getStock() + diff;
+            if (newStock < 0 || productMapper.adjustIfAvailable(record.getProductId(), diff) == 0) {
+                throw new BaseException("调整后库存不能为负数");
+            }
 
             // 记录库存变动日志
             StockLog stockLog = StockLog.builder()
@@ -276,21 +290,13 @@ public class StockServiceImpl implements InventoryService {
                     .changeType(StockLog.TYPE_CHECK)
                     .changeQuantity(diff)
                     .beforeStock(product.getStock())
-                    .afterStock(record.getActualStock())
+                    .afterStock(newStock)
                     .operatorId(BaseContext.getCurrentId())
                     .remark("盘点调整")
                     .createTime(LocalDateTime.now())
                     .build();
             stockLogMapper.insert(stockLog);
         }
-
-        // 更新记录状态
-        StockCheckRecord updateRecord = StockCheckRecord.builder()
-                .id(recordId)
-                .status(StockCheckRecord.STATUS_ADJUSTED)
-                .updateTime(LocalDateTime.now())
-                .build();
-        stockCheckRecordMapper.update(updateRecord);
     }
 
     /**

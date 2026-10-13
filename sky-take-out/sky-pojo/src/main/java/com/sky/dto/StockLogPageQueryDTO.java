@@ -19,6 +19,9 @@ public class StockLogPageQueryDTO implements Serializable {
     //商品ID
     private Long productId;
 
+    //商品名称
+    private String productName;
+
     //变动类型
     private Integer changeType;
 

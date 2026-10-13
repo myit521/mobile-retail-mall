@@ -58,7 +58,7 @@ public class JwtTokenAdminInterceptor implements HandlerInterceptor {
             String role = claims.get(JwtClaimsConstant.EMP_ROLE).toString();
             // 从 JWT 中获取 sessionId 并验证 Redis 会话
             String sessionId = claims.get(JwtClaimsConstant.SESSION_ID).toString();
-            if (!tokenSessionService.isAdminSessionValid(sessionId)) {
+            if (!tokenSessionService.isAdminSessionValid(sessionId, empId, role)) {
                 log.warn("admin session 无效，sessionId={}", sessionId);
                 response.setStatus(401);
                 response.setContentType("application/json;charset=UTF-8");
@@ -70,6 +70,7 @@ public class JwtTokenAdminInterceptor implements HandlerInterceptor {
             }
             BaseContext.setCurrentId(empId);//设置当前线程的当前登录用户的 ID
             BaseContext.setCurrentRole(role);
+            BaseContext.setCurrentOwnerType("ADMIN");
             log.info("当前员工 id：{}，角色：{}，sessionId={}", empId, role, sessionId);
             //3、通过，放行
             return true;

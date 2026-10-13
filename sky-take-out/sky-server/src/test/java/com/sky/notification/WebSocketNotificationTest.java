@@ -37,7 +37,7 @@ class WebSocketNotificationTest {
 
     @Test void actualAdminTicketShapeConnectsAndIdentityComesFromTicket() throws Exception {
         TokenSessionService auth = mock(TokenSessionService.class);
-        when(auth.isAdminSessionValid("admin-session")).thenReturn(true);
+        when(auth.isAdminSessionValid("admin-session", 42L)).thenReturn(true);
         WebSocketSessionRegistry registry = new WebSocketSessionRegistry(auth, clock());
         WebSocketTicketService tickets = mock(WebSocketTicketService.class);
         when(tickets.consume("one-time-ticket")).thenReturn(Optional.of(principal("42", "admin-session", 600)));
@@ -65,7 +65,7 @@ class WebSocketNotificationTest {
 
     @Test void sendsOnSameSessionAreSerializedWithoutEviction() throws Exception {
         TokenSessionService auth = mock(TokenSessionService.class);
-        when(auth.isAdminSessionValid("session")).thenReturn(true);
+        when(auth.isAdminSessionValid("session", 7L)).thenReturn(true);
         WebSocketSessionRegistry registry = new WebSocketSessionRegistry(auth, clock());
         BlockingRemote remote = new BlockingRemote();
         Session socket = session(null, remote);
@@ -98,6 +98,18 @@ class WebSocketNotificationTest {
         registry.open(new WebSocketPrincipal("8", "active", NOW.minusSeconds(1)), expired);
         assertThat(registry.sendTo("8", "message")).isFalse();
         verify(expired).close(any(CloseReason.class)); verifyNoInteractions(expiredRemote);
+    }
+
+    @Test void roleRevocationClosesExistingConnectionBeforeDelivery() throws Exception {
+        TokenSessionService auth = mock(TokenSessionService.class);
+        when(auth.isAdminSessionValid("s")).thenReturn(true);
+        WebSocketSessionRegistry registry = new WebSocketSessionRegistry(auth, clock());
+        RemoteEndpoint.Basic remote = mock(RemoteEndpoint.Basic.class);
+        Session socket = session(null, remote);
+        registry.open(principal("7", "s", 60), socket);
+        assertThat(registry.sendTo("7", "message")).isFalse();
+        verify(socket).close(any(CloseReason.class));
+        verifyNoInteractions(remote);
     }
 
     @Test void replacementClosesOldAndItsCallbackCannotRemoveNew() throws Exception {

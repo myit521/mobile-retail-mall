@@ -3,11 +3,15 @@ package com.sky.product.internal.persistence;
 import com.sky.entity.ShoppingCart;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
 @Mapper
 public interface ShoppingCartMapper {
+    @Select("select id from user where id = #{userId} for update")
+    Long lockUserForMutation(Long userId);
+
     /**
      * 查询购物车数据
      * @param shoppingCart

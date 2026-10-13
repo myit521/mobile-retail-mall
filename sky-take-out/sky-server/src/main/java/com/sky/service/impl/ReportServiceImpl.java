@@ -13,6 +13,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -137,6 +138,7 @@ public class ReportServiceImpl implements ReportService {
         if (end == null) {
             end = LocalDate.now();
         }
+        validateDailyRange(begin, end);
         
         List<String> dateList = new ArrayList<>();
         List<BigDecimal> turnoverList = new ArrayList<>();
@@ -180,6 +182,7 @@ public class ReportServiceImpl implements ReportService {
         if (end == null) {
             end = LocalDate.now();
         }
+        validateDailyRange(begin, end);
         
         List<String> dateList = new ArrayList<>();
         List<Integer> orderCountList = new ArrayList<>();
@@ -227,5 +230,11 @@ public class ReportServiceImpl implements ReportService {
                 .validOrderCount(validOrderCount)
                 .completionRate(completionRate)
                 .build();
+    }
+
+    private void validateDailyRange(LocalDate begin, LocalDate end) {
+        if (begin.isAfter(end) || ChronoUnit.DAYS.between(begin, end) > 365) {
+            throw new IllegalArgumentException("报表日期范围必须按顺序且不超过366天");
+        }
     }
 }

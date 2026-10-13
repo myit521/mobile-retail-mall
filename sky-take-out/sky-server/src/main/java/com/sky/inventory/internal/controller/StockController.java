@@ -105,7 +105,7 @@ public class StockController {
      */
     @PostMapping("/check/record")
     @ApiOperation("提交盘点记录")
-    public Result submitCheckRecord(@RequestBody StockCheckRecordDTO dto) {
+    public Result submitCheckRecord(@RequestBody @Valid StockCheckRecordDTO dto) {
         log.info("提交盘点记录：{}", dto);
         stockService.submitCheckRecord(dto);
         return Result.success();

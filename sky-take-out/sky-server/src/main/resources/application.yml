@@ -87,14 +87,14 @@ sky:
     ticket-key-prefix: ${SKY_WEBSOCKET_TICKET_KEY_PREFIX:websocket:ticket:}
   jwt:
     # 设置jwt签名加密时使用的秘钥
-    admin-secret-key: ${SKY_JWT_ADMIN_SECRET_KEY:change-me-admin}
+    admin-secret-key: ${SKY_JWT_ADMIN_SECRET_KEY}
     # 设置jwt过期时间
     admin-ttl: 7200000
     # 设置前端传递过来的令牌名称
     admin-token-name: token
 
     # 设置用户令牌加密时使用的秘钥
-    user-secret-key: ${SKY_JWT_USER_SECRET_KEY:change-me-user}
+    user-secret-key: ${SKY_JWT_USER_SECRET_KEY}
     # 设置用户令牌过期时间
     user-ttl: 7200000
 

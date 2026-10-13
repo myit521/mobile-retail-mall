@@ -3,6 +3,7 @@ package com.sky.properties;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
+import javax.annotation.PostConstruct;
 
 @Component
 @ConfigurationProperties(prefix = "sky.jwt")
@@ -22,5 +23,13 @@ public class JwtProperties {
     private String userSecretKey;
     private long userTtl;
     private String userTokenName;
+
+    @PostConstruct
+    public void validateSecretKeys() {
+        if (adminSecretKey == null || adminSecretKey.trim().isEmpty() || adminSecretKey.startsWith("${")
+                || userSecretKey == null || userSecretKey.trim().isEmpty() || userSecretKey.startsWith("${")) {
+            throw new IllegalStateException("JWT signing secrets must be configured");
+        }
+    }
 
 }

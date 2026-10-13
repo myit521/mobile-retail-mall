@@ -4,6 +4,9 @@ spring:
       enabled: false
 
 sky:
+  jwt:
+    admin-secret-key: test-only-admin-secret-key-32-chars-minimum
+    user-secret-key: test-only-user-secret-key-32-chars-minimum
   wechat:
     appid: test-appid
     secret: test-secret

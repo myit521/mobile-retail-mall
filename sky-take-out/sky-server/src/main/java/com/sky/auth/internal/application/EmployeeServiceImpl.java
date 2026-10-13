@@ -148,8 +148,9 @@ public class EmployeeServiceImpl implements EmployeeService {
         Employee employee = new Employee();
         BeanUtils.copyProperties(employeeDTO, employee);
         //角色标准化处理
-        String role = normalizeRole(employee.getRole());
-        employee.setRole(role);
+        if (employee.getRole() != null) {
+            employee.setRole(normalizeRole(employee.getRole()));
+        }
 
         return employeeMapper.updateEmployee(employee) == 1;
     }

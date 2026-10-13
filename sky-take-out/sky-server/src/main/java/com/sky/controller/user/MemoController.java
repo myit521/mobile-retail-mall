@@ -12,6 +12,7 @@ import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import java.util.List;
 
 /**
  * 用户端 - 备忘录接口
@@ -24,6 +25,12 @@ public class MemoController {
     
     @Autowired
     private MemoService memoService;
+
+    @GetMapping("/reminders")
+    @ApiOperation("获取站内备忘录提醒")
+    public Result<List<MemoVO>> getReminders() {
+        return Result.success(memoService.getUserReminders());
+    }
     
     /**
      * 创建备忘录

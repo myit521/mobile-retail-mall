@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -28,7 +29,7 @@ class WebSocketTicketServiceTest {
         WebSocketTicketProperties props = new WebSocketTicketProperties(); props.setTicketTtl(Duration.ofSeconds(30));
         WebSocketTicketService service = new WebSocketTicketService(store, sessions, props, Clock.fixed(NOW, ZoneOffset.UTC));
         when(store.take(anyString())).thenReturn(Optional.of(WebSocketTicketStore.Record.admin(42L, "s", NOW.plusSeconds(600))));
-        when(sessions.isAdminSessionValid("s")).thenReturn(true);
+        when(sessions.isAdminSessionValid("s", 42L)).thenReturn(true);
         String first = service.issue(42L, "s", NOW.plusSeconds(600));
         String second = service.issue(42L, "s", NOW.plusSeconds(600));
         assertThat(first).isNotEqualTo(second).hasSizeGreaterThanOrEqualTo(32);
@@ -46,9 +47,31 @@ class WebSocketTicketServiceTest {
         when(store.take("expired")).thenReturn(Optional.of(WebSocketTicketStore.Record.admin(1L,"s",NOW.minusSeconds(1))));
         when(store.take("revoked")).thenReturn(Optional.of(WebSocketTicketStore.Record.admin(1L,"revoked",NOW.plusSeconds(1))));
         when(store.take("wrong")).thenReturn(Optional.of(new WebSocketTicketStore.Record("user",1L,"s",NOW.plusSeconds(1))));
-        when(sessions.isAdminSessionValid("s")).thenReturn(true);
+        when(sessions.isAdminSessionValid("s", 1L)).thenReturn(true);
         assertThat(service.consume("used")).isEmpty(); assertThat(service.consume("expired")).isEmpty();
         assertThat(service.consume("revoked")).isEmpty(); assertThat(service.consume("wrong")).isEmpty();
+    }
+
+    @Test void sessionIdCannotMintTicketForAnotherEmployee() {
+        WebSocketTicketStore store = mock(WebSocketTicketStore.class);
+        TokenSessionService sessions = mock(TokenSessionService.class);
+        when(sessions.isAdminSessionValid("s")).thenReturn(true);
+        WebSocketTicketService service = new WebSocketTicketService(store, sessions,
+                new WebSocketTicketProperties(), Clock.fixed(NOW, ZoneOffset.UTC));
+        assertThatThrownBy(() -> service.issue(99L, "s", NOW.plusSeconds(60)))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(store);
+    }
+
+    @Test void roleRevocationBeforeTicketConsumptionRejectsTicket() {
+        WebSocketTicketStore store = mock(WebSocketTicketStore.class);
+        TokenSessionService sessions = mock(TokenSessionService.class);
+        when(sessions.isAdminSessionValid("s")).thenReturn(true);
+        when(store.take("ticket")).thenReturn(Optional.of(
+                WebSocketTicketStore.Record.admin(42L, "s", NOW.plusSeconds(60))));
+        WebSocketTicketService service = new WebSocketTicketService(store, sessions,
+                new WebSocketTicketProperties(), Clock.fixed(NOW, ZoneOffset.UTC));
+        assertThat(service.consume("ticket")).isEmpty();
     }
     @AfterEach void clearContext() { BaseContext.clear(); }
 

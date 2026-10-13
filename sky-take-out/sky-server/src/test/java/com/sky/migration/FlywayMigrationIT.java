@@ -35,20 +35,20 @@ class FlywayMigrationIT extends IntegrationTestBase {
     }
 
     @Test
-    void migratesEmptyMySqlDatabaseToVersionFiveAndRerunIsANoOp() throws Exception {
+    void migratesEmptyMySqlDatabaseToVersionEightAndRerunIsANoOp() throws Exception {
         String database = createDatabase();
 
         Flyway flyway = configuredFlyway(database);
         MigrateResult firstMigration = flyway.migrate();
 
         assertThat(firstMigration.success).isTrue();
-        assertThat(firstMigration.migrationsExecuted).isEqualTo(5);
+        assertThat(firstMigration.migrationsExecuted).isEqualTo(8);
         assertThat(tableNames(database)).contains(
                 "category", "employee", "id_segment", "memo", "order_detail", "orders",
                 "payment_callback_log", "outbox_event", "message_consumption", "phone_model", "product", "product_location",
-                "product_phone_model", "product_spec", "shopping_cart", "stock_alert",
+                "product_phone_model", "product_spec", "refund_request", "memo_reminder", "shopping_cart", "stock_alert",
                 "stock_check_plan", "stock_check_record", "stock_log", "stock_operation", "user");
-        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("5"));
+        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("8"));
 
         MigrateResult rerun = flyway.migrate();
 
@@ -57,8 +57,9 @@ class FlywayMigrationIT extends IntegrationTestBase {
         assertThat(flyway.info().applied())
                 .extracting(MigrationInfo::getVersion)
                 .containsExactly(MigrationVersion.fromVersion("1"), MigrationVersion.fromVersion("2"),
-                        MigrationVersion.fromVersion("3"), MigrationVersion.fromVersion("4"), MigrationVersion.fromVersion("5"));
-        assertThat(migrationSuccess(database)).containsExactly(true, true, true, true, true);
+                        MigrationVersion.fromVersion("3"), MigrationVersion.fromVersion("4"), MigrationVersion.fromVersion("5"),
+                        MigrationVersion.fromVersion("6"), MigrationVersion.fromVersion("7"), MigrationVersion.fromVersion("8"));
+        assertThat(migrationSuccess(database)).containsExactly(true, true, true, true, true, true, true, true);
     }
 
     @Test
@@ -66,17 +67,27 @@ class FlywayMigrationIT extends IntegrationTestBase {
         String database = createDatabase();
         try (Connection connection = connectionTo(database)) {
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/sky.sql"));
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("INSERT INTO memo (id, user_id, content) VALUES (1, 42, 'legacy memo')");
+            }
         }
 
         Flyway flyway = configuredFlyway(database);
         MigrateResult migration = flyway.migrate();
 
         assertThat(migration.success).isTrue();
-        assertThat(migration.migrationsExecuted).isEqualTo(4);
-        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("5"));
+        assertThat(migration.migrationsExecuted).isEqualTo(7);
+        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("8"));
         assertThat(tableNames(database)).contains(
-                "category", "employee", "orders", "product", "stock_operation", "outbox_event", "message_consumption", "user");
-        assertThat(migrationSuccess(database)).containsExactly(true, true, true, true, true);
+                "category", "employee", "orders", "product", "stock_operation", "outbox_event", "message_consumption",
+                "refund_request", "memo_reminder", "user");
+        assertThat(migrationSuccess(database)).containsExactly(true, true, true, true, true, true, true, true);
+        try (Connection connection = connectionTo(database);
+             Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery("SELECT owner_type FROM memo WHERE id = 1")) {
+            assertThat(resultSet.next()).isTrue();
+            assertThat(resultSet.getString(1)).isNull();
+        }
     }
 
     private Flyway configuredFlyway(String database) {

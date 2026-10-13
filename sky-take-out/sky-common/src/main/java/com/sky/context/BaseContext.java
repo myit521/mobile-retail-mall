@@ -38,6 +38,12 @@ public class BaseContext {
      */
     public static ThreadLocal<String> roleThreadLocal = new ThreadLocal<>();
 
+    private static final ThreadLocal<String> ownerTypeThreadLocal = new ThreadLocal<>();
+
+    public static void setCurrentOwnerType(String ownerType) { ownerTypeThreadLocal.set(ownerType); }
+
+    public static String getCurrentOwnerType() { return ownerTypeThreadLocal.get(); }
+
     /**
      * 设置当前登录用户的角色
      * @param role 用户角色
@@ -67,6 +73,7 @@ public class BaseContext {
     public static void clear() {
         removeCurrentId();
         removeCurrentRole();
+        ownerTypeThreadLocal.remove();
     }
 
 }

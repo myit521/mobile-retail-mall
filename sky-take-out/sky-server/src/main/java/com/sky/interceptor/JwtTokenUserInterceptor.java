@@ -55,7 +55,7 @@ public class JwtTokenUserInterceptor implements HandlerInterceptor {
             Long userId = Long.valueOf(claims.get(JwtClaimsConstant.USER_ID).toString());//获取当前登录用户的 ID
             // 从 JWT 中获取 sessionId 并验证 Redis 会话
             String sessionId = claims.get(JwtClaimsConstant.SESSION_ID).toString();
-            if (!tokenSessionService.isUserSessionValid(sessionId)) {
+            if (!tokenSessionService.isUserSessionValid(sessionId, userId)) {
                 log.warn("user session 无效，sessionId={}", sessionId);
                 response.setStatus(401);
                 response.setContentType("application/json;charset=UTF-8");
@@ -66,6 +66,7 @@ public class JwtTokenUserInterceptor implements HandlerInterceptor {
                 return false;
             }
             BaseContext.setCurrentId(userId);//设置当前线程的当前登录用户的 ID
+            BaseContext.setCurrentOwnerType("USER");
             log.info("当前用户 id：{}，sessionId={}", userId, sessionId);
             //3、通过，放行
             return true;
@@ -79,6 +80,6 @@ public class JwtTokenUserInterceptor implements HandlerInterceptor {
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
         //用完之后，清理ThreadLocal中的数据，避免内存泄漏
-        BaseContext.removeCurrentId();
+        BaseContext.clear();
     }
 }

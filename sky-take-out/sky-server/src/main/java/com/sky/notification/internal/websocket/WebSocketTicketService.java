@@ -35,7 +35,7 @@ public class WebSocketTicketService {
 
     public String issue(long employeeId, String adminSessionId, Instant authenticationExpiresAt) {
         if (!authenticationExpiresAt.isAfter(clock.instant())
-                || !tokenSessions.isAdminSessionValid(adminSessionId)) {
+                || !tokenSessions.isAdminSessionValid(adminSessionId, employeeId)) {
             throw new IllegalArgumentException("Authentication expired");
         }
         byte[] entropy = new byte[32];
@@ -52,7 +52,7 @@ public class WebSocketTicketService {
         WebSocketTicketStore.Record record = taken.get();
         if (!ADMIN_AUDIENCE.equals(record.audience())
                 || !record.authenticationExpiresAt().isAfter(clock.instant())
-                || !tokenSessions.isAdminSessionValid(record.adminSessionId())) return Optional.empty();
+                || !tokenSessions.isAdminSessionValid(record.adminSessionId(), record.principalId())) return Optional.empty();
         return Optional.of(new WebSocketPrincipal(String.valueOf(record.principalId()),
                 record.adminSessionId(), record.authenticationExpiresAt()));
     }

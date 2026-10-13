@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 @Slf4j
-public class WebSocketSessionRegistry {
+public class WebSocketSessionRegistry implements com.sky.notification.api.AdminSessionNotifier {
     private final Map<String, Connection> sessions = new ConcurrentHashMap<>();
     private final TokenSessionService tokenSessions;
     private final Clock clock;
@@ -75,7 +75,8 @@ public class WebSocketSessionRegistry {
 
     private boolean authorized(Connection connection) {
         return connection.principal.authenticationExpiresAt().isAfter(clock.instant())
-                && tokenSessions.isAdminSessionValid(connection.principal.adminSessionId());
+                && tokenSessions.isAdminSessionValid(connection.principal.adminSessionId(),
+                Long.valueOf(connection.principal.clientId()));
     }
 
     private void closeTransport(Session session, String reason) {

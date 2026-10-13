@@ -96,7 +96,7 @@ class ControllerContractTest {
         order.setId(17L);
         order.setNumber("ORD-CONTRACT-17");
         when(orderService.show(17L)).thenReturn(order);
-        when(tokenSessionService.isUserSessionValid("user-session")).thenReturn(true);
+        when(tokenSessionService.isUserSessionValid("user-session", 29L)).thenReturn(true);
         Map<String, Object> claims = new HashMap<>();
         claims.put(JwtClaimsConstant.USER_ID, 29L);
         claims.put(JwtClaimsConstant.SESSION_ID, "user-session");

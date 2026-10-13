@@ -11,17 +11,23 @@ import com.sky.entity.*;
 import com.sky.exception.OrderBusinessException;
 import com.sky.inventory.api.InventoryService;
 import com.sky.order.api.OrderApplicationService;
+import com.sky.order.api.PaymentCompletion;
 import com.sky.order.api.event.OrderPaidMessage;
 import com.sky.order.internal.OrderTransition;
 import com.sky.order.internal.messaging.OrderEventPublisher;
 import com.sky.order.internal.persistence.OrderDetailMapper;
 import com.sky.order.internal.persistence.OrderMapper;
 import com.sky.order.internal.support.OrderNumberGenerator;
+import com.sky.payment.api.RefundApplicationService;
+import com.sky.payment.api.VerifiedPaymentHandler;
+import com.sky.payment.api.PaymentCallbackCommand;
 import com.sky.observability.BusinessMetrics;
 import com.sky.product.api.ShoppingCartService;
+import com.sky.product.api.ProductCatalog;
 import com.sky.result.PageResult;
 import com.sky.result.Result;
 import com.sky.utils.WeChatPayUtil;
+import com.sky.utils.WeChatPayHttpException;
 import com.sky.vo.OrderPaymentVO;
 import com.sky.vo.OrderStatisticsVO;
 import com.sky.vo.OrderSubmitVO;
@@ -29,8 +35,11 @@ import com.sky.vo.OrderVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.CollectionUtils;
 
 import java.math.BigDecimal;
@@ -50,9 +59,18 @@ public class OrderServiceImpl implements OrderApplicationService {
     @Autowired
     private ShoppingCartService shoppingCartService;
     @Autowired
+    private ProductCatalog productMapper;
+    @Autowired
     private UserService userService;
     @Autowired
     private WeChatPayUtil weChatPayUtil;
+    @Autowired
+    private RefundApplicationService refundService;
+    @Autowired
+    @Lazy
+    private VerifiedPaymentHandler paymentCallbackService;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
     @Autowired
     private OrderEventPublisher orderEventPublisher;
     @Autowired
@@ -74,14 +92,31 @@ public class OrderServiceImpl implements OrderApplicationService {
         
         // 1. 检查用户购物车是否为空
         Long userId = BaseContext.getCurrentId();
+        orderMapper.lockUserForSubmit(userId);
         List<ShoppingCart> cartList = validateShoppingCart(userId);
+        Map<Long, Product> products = productMapper.selectByIds(cartList.stream()
+                .map(ShoppingCart::getProductId).distinct().collect(Collectors.toList())).stream()
+                .collect(Collectors.toMap(Product::getId, product -> product));
+        BigDecimal amount = BigDecimal.ZERO;
+        for (ShoppingCart item : cartList) {
+            Product product = products.get(item.getProductId());
+            if (product == null || !Integer.valueOf(1).equals(product.getStatus())
+                    || product.getPrice() == null || product.getPrice().signum() <= 0
+                    || item.getNumber() == null || item.getNumber() <= 0) {
+                throw new OrderBusinessException("购物车商品已失效");
+            }
+            amount = amount.add(product.getPrice().multiply(BigDecimal.valueOf(item.getNumber())));
+        }
+        if (ordersSubmitDTO.getAmount() == null || amount.compareTo(ordersSubmitDTO.getAmount()) != 0) {
+            throw new OrderBusinessException("订单金额已变化，请刷新购物车");
+        }
         
         // 2. 创建订单
-        Orders orders = createOrder(ordersSubmitDTO, userId);
+        Orders orders = createOrder(ordersSubmitDTO, userId, amount);
         orderMapper.insert(orders);
         
         // 3. 创建订单明细
-        List<OrderDetail> orderDetails = createOrderDetails(cartList, orders.getId());
+        List<OrderDetail> orderDetails = createOrderDetails(cartList, products, orders.getId());
         orderDetailMapper.insertBatch(orderDetails);
         
         // 4. 扣减库存（乐观锁防超卖）
@@ -117,9 +152,10 @@ public class OrderServiceImpl implements OrderApplicationService {
     /**
      * 创建订单
      */
-    private Orders createOrder(OrdersSubmitDTO ordersSubmitDTO, Long userId) {
+    private Orders createOrder(OrdersSubmitDTO ordersSubmitDTO, Long userId, BigDecimal amount) {
         Orders orders = new Orders();
         BeanUtils.copyProperties(ordersSubmitDTO, orders);
+        orders.setAmount(amount);
         orders.setUserId(userId);
         orders.setStatus(Orders.PENDING_PAYMENT);
         orders.setPayStatus(Orders.UN_PAID);
@@ -131,10 +167,11 @@ public class OrderServiceImpl implements OrderApplicationService {
     /**
      * 创建订单明细
      */
-    private List<OrderDetail> createOrderDetails(List<ShoppingCart> cartList, Long orderId) {
+    private List<OrderDetail> createOrderDetails(List<ShoppingCart> cartList, Map<Long, Product> products, Long orderId) {
         return cartList.stream().map(item -> {
             OrderDetail orderDetail = new OrderDetail();
             BeanUtils.copyProperties(item, orderDetail);
+            orderDetail.setAmount(products.get(item.getProductId()).getPrice());
             orderDetail.setOrderId(orderId);
             return orderDetail;
         }).collect(Collectors.toList());
@@ -191,7 +228,20 @@ public class OrderServiceImpl implements OrderApplicationService {
         Orders orders = orderMapper.selectByIdAndUserId(id, userId);
         if(orders == null)
             throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
-        
+        return toOrderVO(orders, userId);
+    }
+
+    @Override
+    public OrderVO showForAdmin(Long id) {
+        Orders orders = orderMapper.selectbyId(id);
+        if (orders == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+        return toOrderVO(orders, null);
+    }
+
+    private OrderVO toOrderVO(Orders orders, Long userId) {
+        Long id = orders.getId();
         OrderVO orderVO = new OrderVO();
         BeanUtils.copyProperties(orders, orderVO);
     
@@ -241,18 +291,7 @@ public class OrderServiceImpl implements OrderApplicationService {
         }
         Orders details = Orders.builder().id(id).cancelReason("用户取消订单").build();
             
-        // 已支付的订单需要退款
-        if (orders.getPayStatus().equals(Orders.PAID)) {
-            try {
-                // 调用微信退款接口
-                performRefund(orders, "用户取消订单");
-                log.info("用户取消订单退款成功，订单号：{}", orders.getNumber());
-            } catch (Exception e) {
-                log.error("用户取消订单退款失败，订单号：{}", orders.getNumber(), e);
-                throw new OrderBusinessException("退款申请失败：" + e.getMessage());
-            }
-            details.setPayStatus(Orders.REFUND);
-        }
+        if (orders.getPayStatus().equals(Orders.PAID)) refundService.recordIntent(orders);
         updateTransitionDetails(details);
         returnStock(id);
         log.info("用户取消订单成功，订单号：{}，userId：{}", orders.getNumber(), userId);
@@ -409,18 +448,7 @@ public class OrderServiceImpl implements OrderApplicationService {
         Orders details = Orders.builder().id(orders.getId())
                 .rejectionReason(ordersRejectionDTO.getRejectionReason()).build();
 
-        // 根据支付状态决定是否需要退款
-        if (orders.getPayStatus().equals(Orders.PAID)) {
-            try {
-                // 调用微信退款接口
-                performRefund(orders, ordersRejectionDTO.getRejectionReason());
-                log.info("拒单退款成功，订单号：{}", orders.getNumber());
-            } catch (Exception e) {
-                log.error("拒单退款失败，订单号：{}", orders.getNumber(), e);
-                throw new OrderBusinessException("退款申请失败：" + e.getMessage());
-            }
-            details.setPayStatus(Orders.REFUND);
-        }
+        if (orders.getPayStatus().equals(Orders.PAID)) refundService.recordIntent(orders);
         updateTransitionDetails(details);
         returnStock(ordersRejectionDTO.getId());
         log.info("拒单成功，订单号：{}，原因：{}", orders.getNumber(), ordersRejectionDTO.getRejectionReason());
@@ -454,18 +482,7 @@ public class OrderServiceImpl implements OrderApplicationService {
         Orders details = Orders.builder().id(orders.getId())
                 .cancelReason(ordersCancelDTO.getCancelReason()).build();
 
-        // 根据支付状态决定是否需要退款
-        if (orders.getPayStatus().equals(Orders.PAID)) {
-            try {
-                // 调用微信退款接口
-                performRefund(orders, ordersCancelDTO.getCancelReason());
-                log.info("管理员取消订单退款成功，订单号：{}", orders.getNumber());
-            } catch (Exception e) {
-                log.error("管理员取消订单退款失败，订单号：{}", orders.getNumber(), e);
-                throw new OrderBusinessException("退款申请失败：" + e.getMessage());
-            }
-            details.setPayStatus(Orders.REFUND);
-        }
+        if (orders.getPayStatus().equals(Orders.PAID)) refundService.recordIntent(orders);
         if (details.getCancelReason() != null || details.getPayStatus() != null) {
             updateTransitionDetails(details);
         }
@@ -474,48 +491,6 @@ public class OrderServiceImpl implements OrderApplicationService {
         return MessageConstant.ORDER_CANCELLED;
     }
     
-    /**
-     * 执行退款操作
-     *
-     * @param orders 订单信息
-     * @param reason 退款原因
-     * @return 退款结果
-     * @throws Exception 退款异常
-     */
-    private String performRefund(Orders orders, String reason) throws Exception {
-        // 生成退款单号：RefundNo + 订单号 + 时间戳
-        String outRefundNo = "R" + orders.getNumber() + System.currentTimeMillis();
-        
-        log.info("发起退款请求，orderNo={}, outRefundNo={}, amount={}, reasonLength={}", 
-                orders.getNumber(), maskValue(outRefundNo, 6), orders.getAmount(), reason == null ? null : reason.length());
-        
-        // 调用微信退款接口
-        String refundResult = weChatPayUtil.refund(
-                orders.getNumber(),     // 商户订单号
-                outRefundNo,           // 商户退款单号
-                orders.getAmount(),    // 退款金额
-                orders.getAmount()     // 原订单金额
-        );
-        
-        return refundResult;
-    }
-    /**
-     * 隐藏敏感信息
-     *
-     * @param value                待隐藏的字符串
-     * @param keepSuffixLength     保留的后缀长度
-     * @return 隐藏后的字符串
-     */
-    private String maskValue(String value, int keepSuffixLength) {
-        if (value == null || value.isEmpty()) {
-            return value;
-        }
-        if (keepSuffixLength <= 0 || value.length() <= keepSuffixLength) {
-            return "***";
-        }
-        return "***" + value.substring(value.length() - keepSuffixLength);
-    }
-
     /**
      * 订单支付
      *
@@ -571,22 +546,22 @@ public class OrderServiceImpl implements OrderApplicationService {
      */
     @Transactional(rollbackFor = Exception.class)
     public void paySuccessWithValidation(String outTradeNo, String transactionId, Double actualAmount) {
-        OrderPaidMessage paid = applyPayment(outTradeNo, actualAmount == null ? null : BigDecimal.valueOf(actualAmount));
-        if (paid != null) {
-            orderEventPublisher.publishOrderPaid(paid);
+        PaymentCompletion completion = applyPayment(outTradeNo, actualAmount == null ? null : BigDecimal.valueOf(actualAmount));
+        if (completion != null && completion.paidEvent() != null) {
+            orderEventPublisher.publishOrderPaid(completion.paidEvent());
         }
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public OrderPaidMessage completeVerifiedPayment(String orderNumber, BigDecimal amount) {
+    public PaymentCompletion completeVerifiedPayment(String orderNumber, BigDecimal amount) {
         if (amount == null || amount.signum() < 0) {
             throw new OrderBusinessException("支付金额不一致");
         }
         return applyPayment(orderNumber, amount);
     }
 
-    private OrderPaidMessage applyPayment(String orderNumber, BigDecimal amount) {
+    private PaymentCompletion applyPayment(String orderNumber, BigDecimal amount) {
         Orders order = orderMapper.getByNumber(orderNumber);
         if (order == null) {
             throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
@@ -594,18 +569,36 @@ public class OrderServiceImpl implements OrderApplicationService {
         if (amount != null && amount.compareTo(order.getAmount()) != 0) {
             throw new OrderBusinessException("支付金额不一致");
         }
+        if (Orders.CANCELLED.equals(order.getStatus())) {
+            return compensateCanceledPayment(order);
+        }
         if (Orders.PAID.equals(order.getPayStatus())) {
             return null;
         }
         if (!Orders.PENDING_PAYMENT.equals(order.getStatus()) || !Orders.UN_PAID.equals(order.getPayStatus())) {
             throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
         }
-        if (!transition(order, null, Orders.PENDING_PROCESS, BusinessMetrics.OrderOperation.PAYMENT)) {
-            return null;
+        if (orderMapper.transition(order.getId(), null, Orders.PENDING_PAYMENT,
+                Orders.PENDING_PROCESS, LocalDateTime.now()) != 1) {
+            Orders current = orderMapper.selectForUpdate(order.getId(), null);
+            if (metrics != null) metrics.orderConflict(BusinessMetrics.OrderOperation.PAYMENT);
+            if (current != null && Orders.CANCELLED.equals(current.getStatus())) {
+                return compensateCanceledPayment(current);
+            }
+            if (current != null && Orders.PAID.equals(current.getPayStatus())) return null;
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
         }
         updateTransitionDetails(Orders.builder().id(order.getId()).payStatus(Orders.PAID).build());
-        return OrderPaidMessage.builder().orderId(order.getId()).orderNumber(order.getNumber())
-                .userId(order.getUserId()).amount(order.getAmount()).build();
+        return PaymentCompletion.paid(OrderPaidMessage.builder().orderId(order.getId())
+                .orderNumber(order.getNumber()).userId(order.getUserId()).amount(order.getAmount()).build());
+    }
+
+    private PaymentCompletion compensateCanceledPayment(Orders order) {
+        if (Orders.UN_PAID.equals(order.getPayStatus())) {
+            updateTransitionDetails(Orders.builder().id(order.getId()).payStatus(Orders.PAID).build());
+        }
+        if (!Orders.REFUND.equals(order.getPayStatus())) refundService.recordIntent(order);
+        return PaymentCompletion.compensatingRefund();
     }
 
     /**
@@ -619,14 +612,67 @@ public class OrderServiceImpl implements OrderApplicationService {
     }
 
     @Override
-    @Transactional
     public void cancelTimeoutOrder(String orderNumber) {
+        Orders localOrder = orderMapper.getByNumber(orderNumber);
+        if (localOrder != null && !Orders.PENDING_PAYMENT.equals(localOrder.getStatus())
+                && !Orders.CANCELLED.equals(localOrder.getStatus())) {
+            return;
+        }
+        JSONObject trade;
+        try {
+            trade = weChatPayUtil.queryTrade(orderNumber);
+        } catch (WeChatPayHttpException notFound) {
+            if (notFound.getStatus() == 404 && "ORDER_NOT_EXIST".equals(notFound.getCode())) {
+                cancelClosedTimeoutOrder(orderNumber);
+                return;
+            }
+            throw new IllegalStateException("Unable to verify payment before timeout cancellation", notFound);
+        } catch (Exception failure) {
+            throw new IllegalStateException("Unable to verify payment before timeout cancellation", failure);
+        }
+        if (trade == null || !orderNumber.equals(trade.getString("out_trade_no"))
+                || !weChatPayUtil.merchantId().equals(trade.getString("mchid"))) {
+            throw new IllegalStateException("Invalid payment query response");
+        }
+        String state = trade.getString("trade_state");
+        if ("SUCCESS".equals(state)) {
+            JSONObject amount = trade.getJSONObject("amount");
+            if (!weChatPayUtil.appId().equals(trade.getString("appid"))
+                    || !"CNY".equals(amount == null ? null : amount.getString("currency"))
+                    || amount.getBigDecimal("total") == null
+                    || trade.getString("transaction_id") == null) {
+                throw new IllegalStateException("Invalid paid transaction query response");
+            }
+            paymentCallbackService.handle(new PaymentCallbackCommand(orderNumber,
+                    trade.getString("transaction_id"), amount.getBigDecimal("total").intValueExact()));
+            return;
+        }
+        if ("NOTPAY".equals(state)) {
+            try {
+                weChatPayUtil.closeTrade(orderNumber);
+            } catch (Exception failure) {
+                throw new IllegalStateException("Unable to close payment before timeout cancellation", failure);
+            }
+        } else if (!"CLOSED".equals(state)) {
+            throw new IllegalStateException("Payment state requires later timeout reconciliation: " + state);
+        }
+        cancelClosedTimeoutOrder(orderNumber);
+    }
+
+    private void cancelClosedTimeoutOrder(String orderNumber) {
+        new TransactionTemplate(transactionManager).execute(status -> {
+            cancelClosedTimeoutOrderInTransaction(orderNumber);
+            return null;
+        });
+    }
+
+    private void cancelClosedTimeoutOrderInTransaction(String orderNumber) {
         Orders orders = orderMapper.getByNumber(orderNumber);
         if (orders == null) {
             log.warn("订单超时取消失败，订单不存在，orderNo={}", orderNumber);
             return;
         }
-        if (!Orders.PENDING_PAYMENT.equals(orders.getStatus())) {
+        if (!Orders.PENDING_PAYMENT.equals(orders.getStatus()) || !Orders.UN_PAID.equals(orders.getPayStatus())) {
             log.info("订单超时取消跳过，当前状态非待支付，orderNo={}, status={}", orderNumber, orders.getStatus());
             return;
         }

@@ -28,6 +28,8 @@ public class Memo implements Serializable {
      * 用户ID
      */
     private Long userId;
+
+    private String ownerType;
     
     /**
      * 标题（AI解析生成）
