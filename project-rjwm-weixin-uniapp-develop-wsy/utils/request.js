@@ -21,7 +21,7 @@ export function request({url='', params={}, method='GET'}) {
 				const { data } = res
 				if (data.code == 200 || data.code === 1) {
 					resolve(res.data)
-				} else if (res.statusCode === 401 || data.code === 401 || data.code === 'AUTHENTICATION_ERROR') {
+				} else if (url !== '/user/user/login' && (res.statusCode === 401 || data.code === 401 || data.code === 'AUTHENTICATION_ERROR')) {
 					// token 失效，清除 token 并提示重新登录
 					store.commit('setToken', '')
 					uni.removeStorageSync('token')
@@ -31,9 +31,8 @@ export function request({url='', params={}, method='GET'}) {
 						confirmText: '重新登录',
 						success: (modalRes) => {
 							if (modalRes.confirm) {
-								// 触发重新登录：跳转首页会自动触发 App.vue 的自动登录
-								uni.switchTab({
-									url: '/pages/home/index'
+								getApp().autoLogin().then((loggedIn) => {
+									if (loggedIn) uni.switchTab({ url: '/pages/home/index' })
 								})
 							}
 						}

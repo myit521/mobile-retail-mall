@@ -19,9 +19,9 @@ export const removeToken = () => Cookies.remove(tokenKey);
 
 // userInfo
 
-const userInfoKey = 'userInfo';
+const userInfoKey = 'user_info';
 export const getUserInfo = () => Cookies.get(userInfoKey);
-export const setUserInfo = (useInfor: Object) => Cookies.set(userInfoKey, useInfor);
+export const setUserInfo = (useInfor: Object) => Cookies.set(userInfoKey, JSON.stringify(useInfor));
 export const removeUserInfo = () => Cookies.remove(userInfoKey);
 
 // printinfo

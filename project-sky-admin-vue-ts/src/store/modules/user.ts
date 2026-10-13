@@ -74,8 +74,7 @@ class User extends VuexModule implements IUserState {
       const role = data.data.role || 'EMPLOYEE'
       this.SET_ROLES([role])
       this.SET_USERINFO(data.data)
-      // 使用 JSON.stringify 序列化对象，避免存成 [object Object]
-      Cookies.set('user_info', JSON.stringify(data.data))
+      setUserInfo(data.data)
       return data
     } else {
       return Message.error(data.msg)
@@ -131,7 +130,6 @@ class User extends VuexModule implements IUserState {
     this.SET_TOKEN('')
     this.SET_ROLES([])
     Cookies.remove('username')
-    Cookies.remove('user_info')
     removeUserInfo()
   }
 }

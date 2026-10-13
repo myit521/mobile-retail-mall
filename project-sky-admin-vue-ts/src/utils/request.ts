@@ -105,12 +105,17 @@ service.interceptors.response.use(
     return Promise.reject(response.data)
   },
   (error: any) => {
-    // 被 CancelToken 取消的重复请求，静默忽略，不向业务层抛错
+    // 取消请求也必须结算，让调用方清理等待状态
     if (axios.isCancel(error)) {
-      return new Promise(() => {})
+      return Promise.reject(error)
     }
     // console.log(error.config, pending, 'error')
     if (error && error.response) {
+      const data = error.response.data
+      if (data && (data.message || data.msg)) {
+        error.message = data.message || data.msg
+        Message.error(error.message)
+      }
       switch (error.response.status) {
         case 401:
           router.push('/login')

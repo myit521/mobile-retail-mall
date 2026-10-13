@@ -23,12 +23,21 @@ export default {
   methods: {
     // 自动登录
     async autoLogin() {
+      if (this.loginPromise) return this.loginPromise
+      this.loginPromise = this.doAutoLogin()
+      try {
+        return await this.loginPromise
+      } finally {
+        this.loginPromise = null
+      }
+    },
+    async doAutoLogin() {
       try {
         // 1. 微信登录获取 code
         const loginRes = await this.wxLogin()
         if (!loginRes.code) {
           console.error('微信登录失败，未获取到 code')
-          return
+          return false
         }
         
         // 2. 调用后端登录接口
@@ -41,11 +50,14 @@ export default {
           store.commit('setToken', token)
           uni.setStorageSync('token', token)
           console.log('自动登录成功，token 已保存')
+          return true
         } else {
           console.error('登录接口返回失败:', res)
+          return false
         }
       } catch (error) {
         console.error('自动登录异常:', error)
+        return false
       }
     },
     

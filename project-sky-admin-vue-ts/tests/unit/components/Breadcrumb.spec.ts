@@ -11,11 +11,13 @@ const routes = [
     {
         'path': '/',
         'children': [{
-            'path': 'dashboard'
+            'path': 'dashboard',
+            'meta': { 'title': 'dashboard' }
         }]
     },
     {
         'path': '/menu',
+        'meta': { 'title': 'menu' },
         'children': [{
             'path': 'menu1',
             'meta': { 'title': 'menu1' },
@@ -44,51 +46,61 @@ const router = new VueRouter({
 
 describe('Breadcrumb.vue', () => {
     const wrapper = mount(Breadcrumb, {
-        localVue
+        localVue,
+        router
 
     });
 
-    it('dashboard', () => {
-        router.push('/dashboard');
+    const navigate = async (path: string) => {
+        try {
+            await router.push(path);
+        } catch (error) {
+            if (error.name !== 'NavigationDuplicated') throw error;
+        }
+        await wrapper.vm.$nextTick();
+    };
+
+    it('dashboard', async () => {
+        await navigate('/dashboard');
         const len = wrapper.findAll('.el-breadcrumb__inner').length;
         expect(len).toBe(1);
     });
 
-    it('normal route', () => {
-        router.push('/menu/menu1');
+    it('normal route', async () => {
+        await navigate('/menu/menu1');
         const len = wrapper.findAll('.el-breadcrumb__inner').length;
         expect(len).toBe(2);
     });
 
-    it('nested route', () => {
-        router.push('/menu/menu1/menu1-2/menu1-2-1');
+    it('nested route', async () => {
+        await navigate('/menu/menu1/menu1-2/menu1-2-1');
         const len = wrapper.findAll('.el-breadcrumb__inner').length;
         expect(len).toBe(4);
     });
 
-    it('no meta.title', () => {
-        router.push('/menu/menu1/menu1-2/menu1-2-2');
+    it('no meta.title', async () => {
+        await navigate('/menu/menu1/menu1-2/menu1-2-2');
         const len = wrapper.findAll('.el-breadcrumb__inner').length;
         expect(len).toBe(3);
     });
 
-    it('click link', () => {
-        router.push('/menu/menu1/menu1-2/menu1-2-2');
+    it('click link', async () => {
+        await navigate('/menu/menu1/menu1-2/menu1-2-2');
         const breadcrumbArray = wrapper.findAll('.el-breadcrumb__inner');
         const second = breadcrumbArray.at(1);
         const href = second.find('a').text();
         expect(href).toBe('menu1');
     });
 
-    it('noredirect', () => {
-        router.push('/menu/menu1/menu1-2/menu1-2-1');
+    it('noredirect', async () => {
+        await navigate('/menu/menu1/menu1-2/menu1-2-1');
         const breadcrumbArray = wrapper.findAll('.el-breadcrumb__inner');
         const redirectBreadcrumb = breadcrumbArray.at(2);
         expect(redirectBreadcrumb.contains('a')).toBe(false);
     });
 
-    it('last breadcrumb', () => {
-        router.push('/menu/menu1/menu1-2/menu1-2-1');
+    it('last breadcrumb', async () => {
+        await navigate('/menu/menu1/menu1-2/menu1-2-1');
         const breadcrumbArray = wrapper.findAll('.el-breadcrumb__inner');
         const redirectBreadcrumb = breadcrumbArray.at(3);
         expect(redirectBreadcrumb.contains('a')).toBe(false);

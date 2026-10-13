@@ -273,8 +273,8 @@ export default class extends Vue {
       if (!valid) return
       adjustStock({
         productId: this.adjustData.productId,
-        changeQuantity: this.adjustData.changeQuantity,
-        remark: this.adjustData.remark
+        quantity: this.adjustData.changeQuantity,
+        remark: this.adjustData.remark.trim() || '手动调整'
       })
         .then((res: any) => {
           if (res.data.code === 1) {
