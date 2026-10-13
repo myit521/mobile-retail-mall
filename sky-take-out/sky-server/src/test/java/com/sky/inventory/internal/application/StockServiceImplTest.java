@@ -24,6 +24,41 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class StockServiceImplTest {
 
     @Test
+    void deductionLogsLockedInventoryInsteadOfAnEarlierSnapshot() {
+        InventoryProductMapper products = mock(InventoryProductMapper.class);
+        StockLogMapper logs = mock(StockLogMapper.class);
+        when(products.selectProductById(7L)).thenReturn(Product.builder().id(7L).stock(10).build());
+        when(products.selectProductForUpdate(7L)).thenReturn(Product.builder().id(7L).stock(15).build());
+        when(products.deductIfAvailable(7L, 3)).thenReturn(1);
+        StockServiceImpl service = new StockServiceImpl();
+        ReflectionTestUtils.setField(service, "productMapper", products);
+        ReflectionTestUtils.setField(service, "stockLogMapper", logs);
+
+        service.deductStock(9L, List.of(OrderDetail.builder().productId(7L).number(3).build()));
+
+        verify(logs).insert(org.mockito.ArgumentMatchers.argThat(log ->
+                log.getBeforeStock() == 15 && log.getAfterStock() == 12 && log.getChangeQuantity() == -3));
+    }
+
+    @Test
+    void returnLogsLockedInventoryInsteadOfAnEarlierSnapshot() {
+        InventoryProductMapper products = mock(InventoryProductMapper.class);
+        StockLogMapper logs = mock(StockLogMapper.class);
+        when(products.releaseOnce(9L, "ORDER_CLOSED")).thenReturn(1);
+        when(products.selectProductById(7L)).thenReturn(Product.builder().id(7L).stock(10).build());
+        when(products.selectProductForUpdate(7L)).thenReturn(Product.builder().id(7L).stock(15).build());
+        when(products.returnStock(7L, 3)).thenReturn(1);
+        StockServiceImpl service = new StockServiceImpl();
+        ReflectionTestUtils.setField(service, "productMapper", products);
+        ReflectionTestUtils.setField(service, "stockLogMapper", logs);
+
+        service.returnStock(9L, List.of(OrderDetail.builder().productId(7L).number(3).build()));
+
+        verify(logs).insert(org.mockito.ArgumentMatchers.argThat(log ->
+                log.getBeforeStock() == 15 && log.getAfterStock() == 18 && log.getChangeQuantity() == 3));
+    }
+
+    @Test
     void adjustUsesLockedCurrentStockAndAtomicDelta() {
         InventoryProductMapper products = mock(InventoryProductMapper.class);
         StockLogMapper logs = mock(StockLogMapper.class);
@@ -113,13 +148,13 @@ class StockServiceImplTest {
     }
 
     @Test
-    void productDeletedBetweenLookupAndIncrementContributesNoAggregateOrReleaseLog() {
+    void unsuccessfulIncrementContributesNoAggregateOrReleaseLog() {
         long orderId = 98001L;
         long productId = 98002L;
         InventoryProductMapper productMapper = mock(InventoryProductMapper.class);
         StockLogMapper stockLogMapper = mock(StockLogMapper.class);
         when(productMapper.releaseOnce(orderId, "ORDER_CLOSED")).thenReturn(1);
-        when(productMapper.selectProductById(productId)).thenReturn(Product.builder()
+        when(productMapper.selectProductForUpdate(productId)).thenReturn(Product.builder()
                 .id(productId)
                 .name("deleted-before-increment")
                 .stock(5)

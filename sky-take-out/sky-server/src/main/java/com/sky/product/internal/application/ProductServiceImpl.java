@@ -157,7 +157,7 @@ public class ProductServiceImpl implements ProductService {
         
         // 2. 更新商品基本信息
         Product product = new Product();
-        BeanUtils.copyProperties(productDTO, product);
+        BeanUtils.copyProperties(productDTO, product, "stock");
         productMapper.updateProduct(product);
         
         // 3. 更新商品规格

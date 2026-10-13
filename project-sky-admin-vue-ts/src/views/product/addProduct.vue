@@ -27,7 +27,10 @@
             <el-input v-model="ruleForm.price" placeholder="请设置商品价格" />
           </el-form-item>
           <el-form-item label="库存数量:" prop="stock">
-            <el-input-number v-model="ruleForm.stock" :min="0" placeholder="库存数量" />
+            <el-input-number v-model="ruleForm.stock" :min="0" :disabled="actionType === 'edit'" placeholder="库存数量" />
+            <div v-if="actionType === 'edit'">
+              库存只读，请前往<router-link to="/stock">库存调整</router-link>修改
+            </div>
           </el-form-item>
         </div>
         <div>
@@ -314,6 +317,7 @@ export default class extends Vue {
               this.$message.error('请求出错了：' + err.message)
             })
         } else {
+          delete params.stock
           delete params.createTime
           delete params.updateTime
           editProduct(params)

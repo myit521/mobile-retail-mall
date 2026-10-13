@@ -4,6 +4,7 @@ import com.sky.context.BaseContext;
 import com.sky.dto.OrdersSubmitDTO;
 import com.sky.dto.ShoppingCartDTO;
 import com.sky.exception.OrderBusinessException;
+import com.sky.entity.OrderDetail;
 import com.sky.order.api.OrderApplicationService;
 import com.sky.order.internal.messaging.OrderEventPublisher;
 import com.sky.product.api.ShoppingCartService;
@@ -17,8 +18,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.socket.server.standard.ServerEndpointExporter;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -41,6 +45,7 @@ class OrderSubmissionConcurrencyIT extends IntegrationTestBase {
     @Autowired private OrderApplicationService orders;
     @Autowired private ShoppingCartService cart;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
     @MockBean private OrderEventPublisher events;
     @MockBean private ServerEndpointExporter serverEndpointExporter;
 
@@ -80,10 +85,61 @@ class OrderSubmissionConcurrencyIT extends IntegrationTestBase {
                 Integer.class, USER_ID)).isEqualTo(1);
     }
 
+    @Test
+    void repetitionRestoresItemsEvenWhenItsTransactionSnapshotPredatesSubmissionCommit() throws Exception {
+        jdbc.update("INSERT INTO orders (id, number, user_id, status, pay_status, order_time, amount) "
+                + "VALUES (99002, 'historical-cart-order', ?, 5, 1, NOW(), 5.00)", USER_ID);
+        jdbc.update("INSERT INTO order_detail (order_id, product_id, number, amount) VALUES (99002, ?, 2, 2.50)", PRODUCT_ID);
+        CountDownLatch snapshotRead = new CountDownLatch(1);
+        runDuringSubmission(() -> new TransactionTemplate(transactionManager).execute(status -> {
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM shopping_cart WHERE user_id = ?",
+                    Integer.class, USER_ID)).isEqualTo(1);
+            snapshotRead.countDown();
+            orders.repetition(99002L);
+            return null;
+        }), snapshotRead);
+
+        assertThat(jdbc.queryForObject("SELECT SUM(number) FROM shopping_cart WHERE user_id = ?",
+                Integer.class, USER_ID)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT stock FROM product WHERE id = ?", Integer.class, PRODUCT_ID))
+                .isEqualTo(9);
+    }
+
+    @Test
+    void refreshedCartUsesChangedProductPriceAndCanBeSubmitted() {
+        jdbc.update("UPDATE product SET price = 3.00 WHERE id = ?", PRODUCT_ID);
+        asUser(() -> {
+            assertThat(cart.list().get(0).getAmount()).isEqualByComparingTo("3.00");
+            OrdersSubmitDTO refreshed = request();
+            refreshed.setAmount(cart.list().get(0).getAmount());
+            assertThat(orders.submit(refreshed).getOrderAmount()).isEqualByComparingTo("3.00");
+        });
+        assertSubmittedOnce();
+    }
+
+    @Test
+    void historicalItemsDisplayCurrentPricesAfterRestoration() {
+        jdbc.update("DELETE FROM shopping_cart WHERE user_id = ?", USER_ID);
+        jdbc.update("UPDATE product SET price = 3.00 WHERE id = ?", PRODUCT_ID);
+        asUser(() -> {
+            cart.restore(List.of(OrderDetail.builder().productId(PRODUCT_ID).number(2)
+                    .amount(new BigDecimal("2.50")).build()));
+            assertThat(cart.list().get(0).getAmount()).isEqualByComparingTo("3.00");
+            assertThat(cart.list().get(0).getNumber()).isEqualTo(2);
+        });
+    }
+
     private void runDuringSubmission(Runnable competingAction) throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        runDuringSubmission(() -> {
+            started.countDown();
+            competingAction.run();
+        }, started);
+    }
+
+    private void runDuringSubmission(Runnable competingAction, CountDownLatch competitorStarted) throws Exception {
         CountDownLatch beforeCommit = new CountDownLatch(1);
         CountDownLatch releaseCommit = new CountDownLatch(1);
-        CountDownLatch competitorStarted = new CountDownLatch(1);
         doAnswer(invocation -> {
             beforeCommit.countDown();
             assertThat(releaseCommit.await(10, TimeUnit.SECONDS)).isTrue();
@@ -93,10 +149,7 @@ class OrderSubmissionConcurrencyIT extends IntegrationTestBase {
         try {
             Future<?> first = executor.submit(() -> asUser(() -> orders.submit(request())));
             assertThat(beforeCommit.await(10, TimeUnit.SECONDS)).isTrue();
-            Future<?> second = executor.submit(() -> asUser(() -> {
-                competitorStarted.countDown();
-                competingAction.run();
-            }));
+            Future<?> second = executor.submit(() -> asUser(competingAction));
             assertThat(competitorStarted.await(10, TimeUnit.SECONDS)).isTrue();
             assertThatThrownBy(() -> second.get(250, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
             releaseCommit.countDown();

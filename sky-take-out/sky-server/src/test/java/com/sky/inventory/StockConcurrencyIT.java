@@ -1,6 +1,7 @@
 package com.sky.inventory;
 
 import com.sky.entity.OrderDetail;
+import com.sky.entity.Product;
 import com.sky.dto.StockAdjustDTO;
 import com.sky.entity.StockCheckRecord;
 import com.sky.exception.BaseException;
@@ -49,6 +50,7 @@ class StockConcurrencyIT extends IntegrationTestBase {
     private static final long RELEASE_PRODUCT_ID = 97002L;
 
     private InventoryProductMapper productMapper;
+    private com.sky.product.internal.persistence.ProductMapper catalogMapper;
     private StockCheckRecordMapper checkRecords;
     private InventoryService inventoryService;
     private StockServiceImpl stockService;
@@ -77,12 +79,15 @@ class StockConcurrencyIT extends IntegrationTestBase {
         org.apache.ibatis.session.Configuration configuration = new org.apache.ibatis.session.Configuration();
         configuration.setMapUnderscoreToCamelCase(true);
         configuration.addMapper(InventoryProductMapper.class);
+        configuration.addMapper(com.sky.product.internal.persistence.ProductMapper.class);
         configuration.addMapper(StockCheckRecordMapper.class);
         factory.setConfiguration(configuration);
-        factory.setMapperLocations(new ClassPathResource("mapper/StockLogMapper.xml"));
+        factory.setMapperLocations(new ClassPathResource("mapper/StockLogMapper.xml"),
+                new ClassPathResource("mapper/ProductMapper.xml"));
         SqlSessionFactory sessionFactory = factory.getObject();
         SqlSessionTemplate session = new SqlSessionTemplate(sessionFactory);
         productMapper = session.getMapper(InventoryProductMapper.class);
+        catalogMapper = session.getMapper(com.sky.product.internal.persistence.ProductMapper.class);
         checkRecords = session.getMapper(StockCheckRecordMapper.class);
         StockLogMapper stockLogMapper = session.getMapper(StockLogMapper.class);
 
@@ -101,6 +106,77 @@ class StockConcurrencyIT extends IntegrationTestBase {
         proxyFactory.addAdvice(new TransactionInterceptor(
                 transactionManager, new AnnotationTransactionAttributeSource()));
         inventoryService = (InventoryService) proxyFactory.getProxy();
+    }
+
+    @Test
+    void productEditWithStaleStockPreservesCommittedInventory() {
+        Product staleEdit = Product.builder().id(LAST_ITEM_PRODUCT_ID).name("renamed-item").stock(1).build();
+        jdbc.update("UPDATE product SET stock = 8 WHERE id = ?", LAST_ITEM_PRODUCT_ID);
+
+        catalogMapper.updateProduct(staleEdit);
+
+        assertThat(stockOf(LAST_ITEM_PRODUCT_ID)).isEqualTo(8);
+        assertThat(jdbc.queryForObject("SELECT name FROM product WHERE id = ?", String.class,
+                LAST_ITEM_PRODUCT_ID)).isEqualTo("renamed-item");
+    }
+
+    @Test
+    void deductionAuditContinuesCommittedAdjustmentChain() throws Exception {
+        assertConcurrentAuditChain(false);
+    }
+
+    @Test
+    void returnAuditContinuesCommittedAdjustmentChain() throws Exception {
+        assertConcurrentAuditChain(true);
+    }
+
+    private void assertConcurrentAuditChain(boolean returning) throws Exception {
+        jdbc.update("UPDATE product SET stock = 10 WHERE id = ?", LAST_ITEM_PRODUCT_ID);
+        CountDownLatch readingStock = new CountDownLatch(1);
+        InventoryProductMapper racingProducts = mock(InventoryProductMapper.class, delegatesTo(productMapper));
+        doAnswer(invocation -> {
+            Product snapshot = productMapper.selectProductById(LAST_ITEM_PRODUCT_ID);
+            readingStock.countDown();
+            return snapshot;
+        }).when(racingProducts).selectProductById(LAST_ITEM_PRODUCT_ID);
+        doAnswer(invocation -> {
+            readingStock.countDown();
+            return productMapper.selectProductForUpdate(LAST_ITEM_PRODUCT_ID);
+        }).when(racingProducts).selectProductForUpdate(LAST_ITEM_PRODUCT_ID);
+        ReflectionTestUtils.setField(stockService, "productMapper", racingProducts);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> operation = transaction.execute(status -> {
+                productMapper.selectProductForUpdate(LAST_ITEM_PRODUCT_ID);
+                Future<?> attempt = executor.submit(() -> transaction.execute(workerStatus -> {
+                    if (returning) {
+                        stockService.returnStock(97008L, List.of(detail(LAST_ITEM_PRODUCT_ID, 3)));
+                    } else {
+                        stockService.deductStock(97008L, List.of(detail(LAST_ITEM_PRODUCT_ID, 3)));
+                    }
+                    return null;
+                }));
+                await(readingStock);
+                StockAdjustDTO adjustment = new StockAdjustDTO();
+                adjustment.setProductId(LAST_ITEM_PRODUCT_ID);
+                adjustment.setQuantity(5);
+                stockService.adjustStock(adjustment);
+                return attempt;
+            });
+            operation.get(20, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+        int finalStock = returning ? 18 : 12;
+        assertThat(stockOf(LAST_ITEM_PRODUCT_ID)).isEqualTo(finalStock);
+        List<int[]> chain = jdbc.query("SELECT before_stock, after_stock, change_quantity FROM stock_log "
+                        + "WHERE product_id = ? ORDER BY id", (rs, row) -> new int[] {
+                        rs.getInt("before_stock"), rs.getInt("after_stock"), rs.getInt("change_quantity") },
+                LAST_ITEM_PRODUCT_ID);
+        assertThat(chain).hasSize(2);
+        assertThat(chain.get(0)).containsExactly(10, 15, 5);
+        assertThat(chain.get(1)).containsExactly(15, finalStock, returning ? 3 : -3);
     }
 
     @Test

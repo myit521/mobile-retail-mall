@@ -141,7 +141,7 @@ public class TokenSessionServiceImpl implements TokenSessionService {
         if (!employeeId.toString().equals(storedId) || !role.equals(storedRole)) return false;
         Employee employee = employeeMapper.getEmployeeById(employeeId);
         return employee != null && Integer.valueOf(1).equals(employee.getStatus())
-                && role.equals(employee.getRole());
+                && role.equals(EmployeeServiceImpl.normalizeRole(employee.getRole()));
     }
 
     /**

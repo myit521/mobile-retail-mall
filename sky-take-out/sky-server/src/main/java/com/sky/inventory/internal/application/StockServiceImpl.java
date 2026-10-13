@@ -47,7 +47,7 @@ public class StockServiceImpl implements InventoryService {
     private BusinessMetrics metrics;
 
     /**
-     * 下单时扣减库存（乐观锁防超卖）
+     * 下单时扣减库存（锁定当前库存并防超卖）
      */
     @Override
     @Transactional
@@ -57,14 +57,14 @@ public class StockServiceImpl implements InventoryService {
             Integer quantity = detail.getNumber();
             validateQuantity(quantity);
 
-            // 查询当前库存（用于日志记录）
-            Product product = productMapper.selectProductById(productId);
+            // 锁定当前库存，确保日志记录真实的变动前值
+            Product product = productMapper.selectProductForUpdate(productId);
             if (product == null) {
                 if (metrics != null) metrics.stockFailure(BusinessMetrics.StockOperation.DEDUCT);
                 throw new BaseException(MessageConstant.STOCK_PRODUCT_NOT_FOUND);
             }
 
-            // 乐观锁扣减，WHERE stock >= quantity
+            // 条件扣减，WHERE stock >= quantity
             int rows = productMapper.deductIfAvailable(productId, quantity);
             if (rows == 0) {
                 if (metrics != null) metrics.stockFailure(BusinessMetrics.StockOperation.DEDUCT);
@@ -111,7 +111,7 @@ public class StockServiceImpl implements InventoryService {
             Long productId = detail.getProductId();
             Integer quantity = detail.getNumber();
 
-            Product product = productMapper.selectProductById(productId);
+            Product product = productMapper.selectProductForUpdate(productId);
             if (product == null) {
                 log.warn("商品 {} 不存在，跳过库存归还", productId);
                 continue;

@@ -127,7 +127,7 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
             shoppingCart.setProductId(orderDetail.getProductId());
             shoppingCart.setSpecInfo(orderDetail.getSpecInfo());
 
-            List<ShoppingCart> existing = shoppingCartMapper.selectlist(shoppingCart);
+            List<ShoppingCart> existing = shoppingCartMapper.selectlistForUpdate(shoppingCart);
             if (existing != null && !existing.isEmpty()) {
                 ShoppingCart cart = existing.get(0);
                 cart.setNumber(cart.getNumber() + orderDetail.getNumber());

@@ -71,9 +71,6 @@
             <if test="price != null">
                 price = #{price},
             </if>
-            <if test="stock != null">
-                stock = #{stock},
-            </if>
             <if test="image != null">
                 image = #{image},
             </if>

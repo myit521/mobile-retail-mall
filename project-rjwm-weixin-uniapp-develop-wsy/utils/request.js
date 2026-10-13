@@ -1,5 +1,6 @@
 import store from './../store'
 import { baseUrl } from './env'
+let recoveringSession = false
 // 参数： url:请求地址  param：请求参数  method：请求方式 callBack：回调函数
 export function request({url='', params={}, method='GET'}) {
 	const storeInfo = store.state
@@ -22,21 +23,27 @@ export function request({url='', params={}, method='GET'}) {
 				if (data.code == 200 || data.code === 1) {
 					resolve(res.data)
 				} else if (url !== '/user/user/login' && (res.statusCode === 401 || data.code === 401 || data.code === 'AUTHENTICATION_ERROR')) {
-					// token 失效，清除 token 并提示重新登录
-					store.commit('setToken', '')
-					uni.removeStorageSync('token')
-					uni.showModal({
-						title: '登录已过期',
-						content: '需要重新登录，是否继续？',
-						confirmText: '重新登录',
-						success: (modalRes) => {
-							if (modalRes.confirm) {
-								getApp().autoLogin().then((loggedIn) => {
-									if (loggedIn) uni.switchTab({ url: '/pages/home/index' })
-								})
-							}
-						}
-					})
+					// 仅使本次请求对应的会话失效，合并并发请求的恢复提示。
+					if (header.authentication === (store.state.token || '') && !recoveringSession) {
+						recoveringSession = true
+						store.commit('setToken', '')
+						uni.removeStorageSync('token')
+						uni.showModal({
+							title: '登录已过期',
+							content: '需要重新登录，是否继续？',
+							confirmText: '重新登录',
+							success: (modalRes) => {
+								if (modalRes.confirm) {
+									getApp().autoLogin().then((loggedIn) => {
+										if (loggedIn) uni.switchTab({ url: '/pages/home/index' })
+									}).catch(() => {}).finally(() => { recoveringSession = false })
+								} else {
+									recoveringSession = false
+								}
+							},
+							fail: () => { recoveringSession = false }
+						})
+					}
 					reject(data)
 				} else {
 					reject(res.data)

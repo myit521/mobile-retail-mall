@@ -160,7 +160,7 @@ public class EmployeeServiceImpl implements EmployeeService {
      * @param role 原始角色值
      * @return 标准化的角色（ADMIN 或 EMPLOYEE）
      */
-    private String normalizeRole(String role) {
+    static String normalizeRole(String role) {
         if (role == null || role.trim().isEmpty()) {
             return "EMPLOYEE";
         }
