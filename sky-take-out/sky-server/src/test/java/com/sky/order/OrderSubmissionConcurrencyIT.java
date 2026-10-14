@@ -1,6 +1,9 @@
 package com.sky.order;
 
 import com.sky.context.BaseContext;
+import com.sky.constant.CacheConstant;
+import com.sky.dto.StockAdjustDTO;
+import com.sky.inventory.api.InventoryService;
 import com.sky.dto.OrdersSubmitDTO;
 import com.sky.dto.ShoppingCartDTO;
 import com.sky.exception.OrderBusinessException;
@@ -13,6 +16,7 @@ import com.sky.support.IntegrationTestBase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.CacheManager;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -47,6 +51,8 @@ class OrderSubmissionConcurrencyIT extends IntegrationTestBase {
     @Autowired private ShoppingCartService cart;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private ReportMapper reports;
+    @Autowired private InventoryService inventory;
+    @Autowired private CacheManager cacheManager;
     @Autowired private PlatformTransactionManager transactionManager;
     @MockBean private OrderEventPublisher events;
     @MockBean private ServerEndpointExporter serverEndpointExporter;
@@ -64,6 +70,47 @@ class OrderSubmissionConcurrencyIT extends IntegrationTestBase {
                 + "VALUES (?, 'concurrent-cart-product', 1, 2.50, 10, 1)", PRODUCT_ID);
         jdbc.update("INSERT INTO shopping_cart (user_id, product_id, number, amount, create_time) "
                 + "VALUES (?, ?, 1, 2.50, NOW())", USER_ID, PRODUCT_ID);
+    }
+
+    @Test
+    void stockChangeClearsRedisProductListsAfterCommit() {
+        var cache = cacheManager.getCache(CacheConstant.PRODUCT_CACHE);
+        cache.put("category:stock-cache-test", 0);
+        cache.put("phoneModel:stock-cache-test", 0);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            StockAdjustDTO adjustment = new StockAdjustDTO();
+            adjustment.setProductId(PRODUCT_ID);
+            adjustment.setQuantity(5);
+            inventory.adjustStock(adjustment);
+            assertThat(cache.get("category:stock-cache-test", Integer.class)).isZero();
+            assertThat(cache.get("phoneModel:stock-cache-test", Integer.class)).isZero();
+        });
+        assertThat(cache.get("category:stock-cache-test")).isNull();
+        assertThat(cache.get("phoneModel:stock-cache-test")).isNull();
+        assertThat(jdbc.queryForObject("SELECT stock FROM product WHERE id=?", Integer.class, PRODUCT_ID))
+                .isEqualTo(15);
+    }
+
+    @Test
+    void rolledBackStockChangePreservesRedisProductLists() {
+        var cache = cacheManager.getCache(CacheConstant.PRODUCT_CACHE);
+        cache.put("category:stock-cache-test", 0);
+        cache.put("phoneModel:stock-cache-test", 0);
+        try {
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                StockAdjustDTO adjustment = new StockAdjustDTO();
+                adjustment.setProductId(PRODUCT_ID);
+                adjustment.setQuantity(5);
+                inventory.adjustStock(adjustment);
+                status.setRollbackOnly();
+            });
+            assertThat(cache.get("category:stock-cache-test", Integer.class)).isZero();
+            assertThat(cache.get("phoneModel:stock-cache-test", Integer.class)).isZero();
+            assertThat(jdbc.queryForObject("SELECT stock FROM product WHERE id=?", Integer.class, PRODUCT_ID))
+                    .isEqualTo(10);
+        } finally {
+            cache.invalidate();
+        }
     }
 
     @Test

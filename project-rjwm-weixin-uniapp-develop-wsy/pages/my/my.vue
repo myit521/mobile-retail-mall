@@ -172,16 +172,12 @@ export default {
       });
     },
     async oneOrderFun(id) {
-      let pages = getCurrentPages();
-      let routeIndex = pages.findIndex(
-        (item) => item.route === "pages/index/index"
-      );
       // 先清空购物车
       await delShoppingCart();
       repetitionOrder(id).then((res) => {
         if (res.code === 1) {
-          uni.navigateBack({
-            delta: routeIndex > -1 ? pages.length - routeIndex : 1,
+          uni.switchTab({
+            url: "/pages/index/index",
           });
         }
       });

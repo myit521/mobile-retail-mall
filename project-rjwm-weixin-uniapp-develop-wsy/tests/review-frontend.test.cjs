@@ -12,11 +12,12 @@ function page(file, dependencies = {}) {
   const context = {
     module: { exports: {} }, mapState: () => ({}), mapMutations: () => ({}),
     navBar: {}, Phone: {}, popMask: {}, popCart: {}, ProductDetail: {},
-    Status: {}, OrderDetail: {}, StoreInfo: {}, OrderInfo: {}, ...dependencies,
+    Status: {}, OrderDetail: {}, StoreInfo: {}, OrderInfo: {}, Empty: {},
+    HeadInfo: {}, OrderList: {}, ...dependencies,
   }
   vm.runInNewContext(source, context)
   const definition = context.module.exports
-  return { ...definition.data(), ...definition.methods }
+  return { ...definition, ...definition.data(), ...definition.methods }
 }
 
 test('each specification confirmation uses its new selection even if that product is already in the cart', async () => {
@@ -122,4 +123,95 @@ test('reorder restores the cart then navigates to the registered shop tab', asyn
   await instance.oneMoreOrder(42)
   await Promise.resolve()
   assert.deepEqual(actions, ['clear', 'restore:42', 'shop'])
+})
+
+for (const [file, method] of [['pages/my/my.vue', 'oneOrderFun'], ['pages/historyOrder/historyOrder.vue', 'oneMoreOrder']]) {
+  test(`${file} reorder switches to the shop tab after restoring the cart`, async () => {
+    const actions = []
+    const instance = page(file, {
+      getOrderPage() {}, getCurrentPages: () => [{ route: 'pages/my/my' }],
+      delShoppingCart: async () => { actions.push('clear') },
+      repetitionOrder: async id => { actions.push(`restore:${id}`); return { code: 1 } },
+      uni: {
+        switchTab: ({ url }) => { actions.push(url) },
+        navigateBack: () => { actions.push('back') },
+      },
+    })
+    await instance[method](42)
+    await Promise.resolve()
+    assert.deepEqual(actions, ['clear', 'restore:42', '/pages/index/index'])
+  })
+}
+
+function historyPage() {
+  const pending = []
+  const instance = page('pages/historyOrder/historyOrder.vue', {
+    getOrderPage: params => new Promise(resolve => { pending.push({ params, resolve }) }),
+    setTimeout: callback => callback(),
+    uni: { showLoading() {}, hideLoading() {}, stopPullDownRefresh() {} },
+  })
+  async function complete(index, id, total = 30) {
+    pending[index].resolve({ code: 1, data: { records: [{ id, orderDetailList: [] }], total } })
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+  }
+  return { instance, pending, complete }
+}
+
+test('history ignores an old filter response including after switching back to the same filter', async () => {
+  const { instance, complete } = historyPage()
+  instance.getList()
+  instance.changeTab(1)
+  instance.changeTab(0)
+  await complete(2, 'current', 7)
+  await complete(1, 'other', 99)
+  await complete(0, 'old', 88)
+  assert.deepEqual(Array.from(instance.recentOrdersList, row => row.id), ['current'])
+  assert.equal(instance.pageInfo.total, 7)
+})
+
+test('history refresh ignores an older response for the same filter', async () => {
+  const { instance, complete } = historyPage()
+  instance.getList()
+  instance.onPullDownRefresh()
+  await complete(1, 'fresh', 5)
+  await complete(0, 'old', 99)
+  assert.deepEqual(Array.from(instance.recentOrdersList, row => row.id), ['fresh'])
+  assert.equal(instance.pageInfo.total, 5)
+})
+
+test('history serializes pagination without skipping or dropping legitimate pages', async () => {
+  const { instance, pending, complete } = historyPage()
+  instance.getList()
+  await complete(0, 'first')
+  instance.lower()
+  instance.onReachBottom()
+  instance.lower()
+  assert.equal(pending.length, 2)
+  assert.equal(instance.pageInfo.page, 2)
+  await complete(1, 'second')
+  instance.onReachBottom()
+  assert.equal(pending[2].params.page, 3)
+  await complete(2, 'third')
+  assert.deepEqual(Array.from(instance.recentOrdersList, row => row.id), ['first', 'second', 'third'])
+})
+
+test('history refresh rejects a pending previous page and waits for the new first page', async () => {
+  const { instance, pending, complete } = historyPage()
+  instance.getList()
+  await complete(0, 'first')
+  instance.lower()
+  instance.onPullDownRefresh()
+  instance.lower()
+  assert.equal(pending.length, 3)
+  await complete(1, 'old second', 99)
+  assert.equal(instance.recentOrdersList.length, 0)
+  assert.equal(instance.pageInfo.total, 0)
+  instance.onReachBottom()
+  instance.lower()
+  assert.equal(pending.length, 3)
+  await complete(2, 'fresh', 14)
+  instance.lower()
+  assert.equal(pending[3].params.page, 2)
+  await complete(3, 'fresh second', 14)
+  assert.deepEqual(Array.from(instance.recentOrdersList, row => row.id), ['fresh', 'fresh second'])
 })

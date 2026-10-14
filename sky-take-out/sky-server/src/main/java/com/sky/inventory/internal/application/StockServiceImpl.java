@@ -2,6 +2,7 @@ package com.sky.inventory.internal.application;
 
 import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
+import com.sky.constant.CacheConstant;
 import com.sky.constant.MessageConstant;
 import com.sky.context.BaseContext;
 import com.sky.dto.StockAdjustDTO;
@@ -22,9 +23,13 @@ import com.sky.vo.StockAlertVO;
 import com.sky.vo.StockLogVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -46,6 +51,8 @@ public class StockServiceImpl implements InventoryService {
     private StockCheckRecordMapper stockCheckRecordMapper;
     @Autowired(required = false)
     private BusinessMetrics metrics;
+    @Autowired(required = false)
+    private CacheManager cacheManager;
 
     /**
      * 下单时扣减库存（锁定当前库存并防超卖）
@@ -84,6 +91,9 @@ public class StockServiceImpl implements InventoryService {
                     .createTime(LocalDateTime.now())
                     .build();
             stockLogMapper.insert(stockLog);
+        }
+        if (!orderDetails.isEmpty()) {
+            invalidateProductCacheAfterCommit();
         }
         log.info("订单 {} 库存扣减完成，共 {} 个商品", orderId, orderDetails.size());
     }
@@ -140,7 +150,38 @@ public class StockServiceImpl implements InventoryService {
             stockLogMapper.insert(stockLog);
         }
         productMapper.completeRelease(orderId, ORDER_CLOSED_ACTION, releasedQuantity);
+        if (releasedQuantity > 0) {
+            invalidateProductCacheAfterCommit();
+        }
         log.info("订单 {} 库存归还完成", orderId);
+    }
+
+    private void invalidateProductCacheAfterCommit() {
+        if (cacheManager == null) {
+            return;
+        }
+        Runnable invalidate = () -> {
+            try {
+                Cache cache = cacheManager.getCache(CacheConstant.PRODUCT_CACHE);
+                if (cache != null) {
+                    // invalidate 立即失效，避免事务感知缓存再次延后清理。
+                    cache.invalidate();
+                }
+            } catch (RuntimeException ex) {
+                log.warn("商品缓存失效失败，异常类型：{}", ex.getClass().getName());
+            }
+        };
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    invalidate.run();
+                }
+            });
+        } else {
+            invalidate.run();
+        }
     }
 
     private void validateQuantity(Integer quantity) {
@@ -198,6 +239,9 @@ public class StockServiceImpl implements InventoryService {
                 .build();
         stockLogMapper.insert(stockLog);
 
+        if (quantity != 0) {
+            invalidateProductCacheAfterCommit();
+        }
         log.info("手动调整库存：商品{}，调整量{}，当前库存{}", productId, quantity, newStock);
     }
 
@@ -301,6 +345,7 @@ public class StockServiceImpl implements InventoryService {
                     .createTime(LocalDateTime.now())
                     .build();
             stockLogMapper.insert(stockLog);
+            invalidateProductCacheAfterCommit();
         }
     }
 

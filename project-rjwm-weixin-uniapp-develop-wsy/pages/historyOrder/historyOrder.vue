@@ -89,6 +89,8 @@ export default {
   data() {
     return {
       recentOrdersList: [],
+      listGeneration: 0,
+      listLoading: false,
       pageInfo: {
         page: 1,
         pageSize: 10,
@@ -144,7 +146,7 @@ export default {
     this.showTitle = true;
   },
   onReachBottom() {
-    if (this.recentOrdersList.length < Number(this.pageInfo.total)) {
+    if (!this.listLoading && this.recentOrdersList.length < Number(this.pageInfo.total)) {
       this.pageInfo.page++;
       this.loadingStatus = "loading";
       this.getList(this.status);
@@ -175,19 +177,28 @@ export default {
     },
     // 获取历史订单列表
     getList() {
+      const page = this.pageInfo.page;
+      if (page === 1) {
+        this.listGeneration++;
+        this.pageInfo.total = 0;
+      } else if (this.listLoading) {
+        return;
+      }
+      const generation = this.listGeneration;
+      this.listLoading = true;
       const key = this.urlMap[this.tabIndex].key;
       const fn = this.urlMap[this.tabIndex].fn;
       const params = {
         pageSize: 10,
-        page: this.pageInfo.page,
+        page,
       };
       params[key] = this[key]
       uni.showLoading({ title: "加载中", mask: true });
-      fn(params).then((res) => {
+      return fn(params).then((res) => {
+        if (generation !== this.listGeneration) {
+          return;
+        }
         if (res.code === 1) {
-          setTimeout(function () {
-            uni.hideLoading();
-          }, 100);
           const records = Array.isArray(res.data.records)
             ? res.data.records.map((record) => ({
                 ...record,
@@ -212,20 +223,21 @@ export default {
           this.pageInfo.total = res.data.total;
           this.isEmpty = true;
         }
+      }).finally(() => {
+        if (generation === this.listGeneration) {
+          this.listLoading = false;
+          uni.hideLoading();
+        }
       });
     },
     // 再来一单
     async oneMoreOrder(id) {
-      let pages = getCurrentPages();
-      let routeIndex = pages.findIndex(
-        (item) => item.route === "pages/index/index"
-      );
       // 先清空购物车
       await delShoppingCart();
       repetitionOrder(id).then((res) => {
         if (res.code === 1) {
-          uni.navigateBack({
-            delta: routeIndex > -1 ? pages.length - routeIndex : 1,
+          uni.switchTab({
+            url: "/pages/index/index",
           });
         }
       });
@@ -257,8 +269,11 @@ export default {
       this.changeTab(e.detail.current);
     },
     dataAdd() {
+      if (this.listLoading) {
+        return;
+      }
       const pages = Math.ceil(this.pageInfo.total / 10); //计算总页数
-      if (this.pageInfo.page === pages) {
+      if (this.pageInfo.page >= pages) {
         this.loadingText = "没有更多了";
         this.loading = true;
       } else {
