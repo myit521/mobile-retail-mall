@@ -14,9 +14,8 @@
       <el-table v-if="tableData.length" :data="tableData" stripe class="tableBox">
         <el-table-column prop="productName" label="商品名称" />
         <el-table-column prop="shelfCode" label="货架编号" />
-        <el-table-column prop="locationCode" label="位置编号" />
-        <el-table-column prop="row" label="行" />
-        <el-table-column prop="col" label="列" />
+        <el-table-column prop="positionCode" label="位置编号" />
+        <el-table-column prop="layerNum" label="层数" />
         <el-table-column prop="updateTime" label="更新时间" min-width="110" />
         <el-table-column label="操作" align="center" width="160">
           <template slot-scope="scope">
@@ -43,13 +42,10 @@
           <el-input v-model="formData.shelfCode" placeholder="如：A-01" maxlength="20" />
         </el-form-item>
         <el-form-item label="位置编号：">
-          <el-input v-model="formData.locationCode" placeholder="如：A-01-03（可选）" maxlength="30" />
+          <el-input v-model="formData.positionCode" placeholder="如：A-01-03（可选）" maxlength="30" />
         </el-form-item>
-        <el-form-item label="行：">
-          <el-input-number v-model="formData.row" :min="1" placeholder="行号" />
-        </el-form-item>
-        <el-form-item label="列：">
-          <el-input-number v-model="formData.col" :min="1" placeholder="列号" />
+        <el-form-item label="层数：">
+          <el-input-number v-model="formData.layerNum" :min="1" placeholder="层数" />
         </el-form-item>
         <el-form-item label="备注：">
           <el-input v-model="formData.remark" type="textarea" :rows="2" placeholder="备注信息（可选）" maxlength="200" />
@@ -89,9 +85,8 @@ export default class extends Vue {
   private formData: any = {
     productId: '',
     shelfCode: '',
-    locationCode: '',
-    row: 1,
-    col: 1,
+    positionCode: '',
+    layerNum: 1,
     remark: ''
   }
 
@@ -144,7 +139,7 @@ export default class extends Vue {
   private openAdd() {
     this.action = 'add'
     this.dialogTitle = '设置商品位置'
-    this.formData = { productId: '', shelfCode: '', locationCode: '', row: 1, col: 1, remark: '' }
+    this.formData = { productId: '', shelfCode: '', positionCode: '', layerNum: 1, remark: '' }
     this.dialogVisible = true
   }
 

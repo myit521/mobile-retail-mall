@@ -40,10 +40,10 @@ class ShoppingCartMutationLockTest {
 
         InOrder order = inOrder(mapper);
         order.verify(mapper).lockUserForMutation(USER_ID);
-        order.verify(mapper).selectlist(any(ShoppingCart.class));
+        order.verify(mapper).selectItemForUpdate(any(ShoppingCart.class));
         order.verify(mapper).insert(any(ShoppingCart.class));
         order.verify(mapper).lockUserForMutation(USER_ID);
-        order.verify(mapper).selectlist(any(ShoppingCart.class));
+        order.verify(mapper).selectItemForUpdate(any(ShoppingCart.class));
         assertNotNull(ShoppingCartServiceImpl.class.getMethod("add", ShoppingCartDTO.class).getAnnotation(Transactional.class));
         assertNotNull(ShoppingCartServiceImpl.class.getMethod("sub", ShoppingCartDTO.class).getAnnotation(Transactional.class));
     }
@@ -61,7 +61,7 @@ class ShoppingCartMutationLockTest {
         order.verify(mapper).lockUserForMutation(USER_ID);
         order.verify(mapper).deleteByUserId(USER_ID);
         order.verify(mapper).lockUserForMutation(USER_ID);
-        order.verify(mapper).selectlistForUpdate(any(ShoppingCart.class));
+        order.verify(mapper).selectItemForUpdate(any(ShoppingCart.class));
         order.verify(mapper).insert(any(ShoppingCart.class));
         assertNotNull(ShoppingCartServiceImpl.class.getMethod("clean").getAnnotation(Transactional.class));
         assertNotNull(ShoppingCartServiceImpl.class.getMethod("restore", List.class).getAnnotation(Transactional.class));

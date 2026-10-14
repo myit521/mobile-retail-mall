@@ -64,17 +64,14 @@
                       style="width: 200px" />
           </el-form-item>
           <el-form-item label="位置编号:">
-            <el-input v-model="locationForm.locationCode"
+            <el-input v-model="locationForm.positionCode"
                       placeholder="如：A-01-03（可选）"
                       style="width: 200px" />
           </el-form-item>
         </div>
         <div>
-          <el-form-item label="货架行:">
-            <el-input-number v-model="locationForm.row" :min="1" />
-          </el-form-item>
-          <el-form-item label="货架列:">
-            <el-input-number v-model="locationForm.col" :min="1" />
+          <el-form-item label="货架层数:">
+            <el-input-number v-model="locationForm.layerNum" :min="1" />
           </el-form-item>
         </div>
 
@@ -155,9 +152,8 @@ export default class extends Vue {
 
   private locationForm: any = {
     shelfCode: '',
-    locationCode: '',
-    row: 1,
-    col: 1
+    positionCode: '',
+    layerNum: 1
   }
 
   get rules() {
@@ -257,9 +253,8 @@ export default class extends Vue {
           const loc = res.data.data
           this.locationForm = {
             shelfCode: loc.shelfCode || '',
-            locationCode: loc.locationCode || '',
-            row: loc.row || 1,
-            col: loc.col || 1
+            positionCode: loc.positionCode || '',
+            layerNum: loc.layerNum || 1
           }
         }
       })
@@ -277,7 +272,7 @@ export default class extends Vue {
   private resetForm() {
     this.imageUrl = ''
     this.selectedPhoneModelIds = []
-    this.locationForm = { shelfCode: '', locationCode: '', row: 1, col: 1 }
+    this.locationForm = { shelfCode: '', positionCode: '', layerNum: 1 }
     this.ruleForm = {
       name: '', id: '', price: '', image: '',
       description: '', status: 1, categoryId: '',

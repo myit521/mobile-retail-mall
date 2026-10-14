@@ -400,24 +400,20 @@ export default {
 				})
 				return false
 			}
+			const selectedSpecs = this.openMoreNormPop ? this.flavorDataes : []
 			this.openMoreNormPop = false
 			// 实时更新obj.newCardNumber新添加的字段----加入购物车数量number
 			if (this.productDetails && typeof this.productDetails.dishNumber === 'number') {
 				this.productDetails.dishNumber++
-			}
-			if (
-				this.orderListDataes &&
-				!this.orderListDataes.some((n) => n.productId == item.id) &&
-				this.flavorDataes.length > 0
-			) {
-				item.flavorRemark = JSON.stringify(this.flavorDataes)
 			}
 			let specInfo = ""
 			let flavorRemark = []
 			if (item.flavorRemark) {
 				flavorRemark = JSON.parse(item.flavorRemark)
 			}
-			if (item.specInfo) {
+			if (selectedSpecs.length > 0) {
+				specInfo = selectedSpecs.map((spec) => `${spec.specName}:${spec.specValue}`).join('；')
+			} else if (item.specInfo) {
 				specInfo = item.specInfo
 			} else if (flavorRemark.length > 0) {
 				specInfo = flavorRemark.map((spec) => `${spec.specName}:${spec.specValue}`).join('；')
@@ -453,6 +449,17 @@ export default {
 		},
 		// 从购物车减少商品
 		async redDishAction(item, form) {
+			if (form !== "购物车") {
+				const rows = this.orderListDataes.filter((row) => row.productId === item.id)
+				if (rows.length > 1) {
+					this.openDetailPop = false
+					this.openOrderCartList = true
+					return
+				}
+				if (rows.length === 0) return
+				item = rows[0]
+				form = "购物车"
+			}
 			if (this.productDetails && typeof this.productDetails.dishNumber === 'number' && this.productDetails.dishNumber > 0) {
 				this.productDetails.dishNumber--
 			}
@@ -572,7 +579,7 @@ export default {
 						CData &&
 							CData.forEach((tg) => {
 								if (obj.id === tg.productId) {
-									obj.dishNumber = tg.number
+									obj.dishNumber += tg.number
 								}
 							})
 					}

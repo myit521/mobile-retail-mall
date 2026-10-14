@@ -18,7 +18,7 @@ public interface ShoppingCartMapper {
      */
     List<ShoppingCart> selectlist(ShoppingCart shoppingCart);
 
-    List<ShoppingCart> selectlistForUpdate(ShoppingCart shoppingCart);
+    List<ShoppingCart> selectItemForUpdate(ShoppingCart shoppingCart);
 
     /**
      * 更新购物车数据

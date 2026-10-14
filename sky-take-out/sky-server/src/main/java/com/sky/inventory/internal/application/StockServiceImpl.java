@@ -22,6 +22,7 @@ import com.sky.vo.StockAlertVO;
 import com.sky.vo.StockLogVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -248,7 +249,11 @@ public class StockServiceImpl implements InventoryService {
                 .status(StockCheckRecord.STATUS_PENDING)
                 .createTime(LocalDateTime.now())
                 .build();
-        stockCheckRecordMapper.insert(record);
+        try {
+            stockCheckRecordMapper.insert(record);
+        } catch (DuplicateKeyException ex) {
+            throw new BaseException("该商品在此盘点计划中已有记录");
+        }
     }
 
     /**

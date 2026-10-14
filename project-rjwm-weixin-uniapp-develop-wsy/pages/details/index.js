@@ -126,7 +126,7 @@ export default {
 			await delShoppingCart()
 			repetitionOrder(id).then(res => {
 				if (res.code === 1) {
-					uni.redirectTo({
+					uni.switchTab({
 						url: '/pages/index/index'
 					})
 				}

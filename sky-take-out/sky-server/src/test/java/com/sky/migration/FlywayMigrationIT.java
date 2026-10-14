@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class FlywayMigrationIT extends IntegrationTestBase {
 
@@ -35,20 +36,20 @@ class FlywayMigrationIT extends IntegrationTestBase {
     }
 
     @Test
-    void migratesEmptyMySqlDatabaseToVersionEightAndRerunIsANoOp() throws Exception {
+    void migratesEmptyMySqlDatabaseToVersionTenAndRerunIsANoOp() throws Exception {
         String database = createDatabase();
 
         Flyway flyway = configuredFlyway(database);
         MigrateResult firstMigration = flyway.migrate();
 
         assertThat(firstMigration.success).isTrue();
-        assertThat(firstMigration.migrationsExecuted).isEqualTo(8);
+        assertThat(firstMigration.migrationsExecuted).isEqualTo(10);
         assertThat(tableNames(database)).contains(
                 "category", "employee", "id_segment", "memo", "order_detail", "orders",
                 "payment_callback_log", "outbox_event", "message_consumption", "phone_model", "product", "product_location",
                 "product_phone_model", "product_spec", "refund_request", "memo_reminder", "shopping_cart", "stock_alert",
                 "stock_check_plan", "stock_check_record", "stock_log", "stock_operation", "user");
-        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("8"));
+        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("10"));
 
         MigrateResult rerun = flyway.migrate();
 
@@ -58,8 +59,9 @@ class FlywayMigrationIT extends IntegrationTestBase {
                 .extracting(MigrationInfo::getVersion)
                 .containsExactly(MigrationVersion.fromVersion("1"), MigrationVersion.fromVersion("2"),
                         MigrationVersion.fromVersion("3"), MigrationVersion.fromVersion("4"), MigrationVersion.fromVersion("5"),
-                        MigrationVersion.fromVersion("6"), MigrationVersion.fromVersion("7"), MigrationVersion.fromVersion("8"));
-        assertThat(migrationSuccess(database)).containsExactly(true, true, true, true, true, true, true, true);
+                        MigrationVersion.fromVersion("6"), MigrationVersion.fromVersion("7"), MigrationVersion.fromVersion("8"),
+                        MigrationVersion.fromVersion("9"), MigrationVersion.fromVersion("10"));
+        assertThat(migrationSuccess(database)).containsExactly(true, true, true, true, true, true, true, true, true, true);
     }
 
     @Test
@@ -69,6 +71,7 @@ class FlywayMigrationIT extends IntegrationTestBase {
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/sky.sql"));
             try (Statement statement = connection.createStatement()) {
                 statement.execute("INSERT INTO memo (id, user_id, content) VALUES (1, 42, 'legacy memo')");
+                statement.execute("INSERT INTO user (id) VALUES (1), (2)");
             }
         }
 
@@ -76,17 +79,58 @@ class FlywayMigrationIT extends IntegrationTestBase {
         MigrateResult migration = flyway.migrate();
 
         assertThat(migration.success).isTrue();
-        assertThat(migration.migrationsExecuted).isEqualTo(7);
-        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("8"));
+        assertThat(migration.migrationsExecuted).isEqualTo(9);
+        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("10"));
         assertThat(tableNames(database)).contains(
                 "category", "employee", "orders", "product", "stock_operation", "outbox_event", "message_consumption",
                 "refund_request", "memo_reminder", "user");
-        assertThat(migrationSuccess(database)).containsExactly(true, true, true, true, true, true, true, true);
+        assertThat(migrationSuccess(database)).containsExactly(true, true, true, true, true, true, true, true, true, true);
         try (Connection connection = connectionTo(database);
              Statement statement = connection.createStatement();
              ResultSet resultSet = statement.executeQuery("SELECT owner_type FROM memo WHERE id = 1")) {
             assertThat(resultSet.next()).isTrue();
             assertThat(resultSet.getString(1)).isNull();
+        }
+        assertThat(rowCount(database, "SELECT COUNT(*) FROM user WHERE openid IS NULL")).isEqualTo(2);
+    }
+
+    @Test
+    void duplicateLegacyIdentitiesBlockMigrationWithoutDeletingUsers() throws Exception {
+        String database = createDatabase();
+        migrateTo(database, "8");
+        try (Connection connection = connectionTo(database); Statement statement = connection.createStatement()) {
+            statement.execute("INSERT INTO user (openid) VALUES ('duplicate-openid'), ('duplicate-openid')");
+        }
+        assertThatThrownBy(() -> configuredFlyway(database).migrate())
+                .isInstanceOf(org.flywaydb.core.api.FlywayException.class);
+        assertThat(rowCount(database, "SELECT COUNT(*) FROM user WHERE openid='duplicate-openid'")).isEqualTo(2);
+    }
+
+    @Test
+    void duplicateLegacyChecksBlockMigrationWithoutDeletingRecords() throws Exception {
+        String database = createDatabase();
+        migrateTo(database, "9");
+        try (Connection connection = connectionTo(database); Statement statement = connection.createStatement()) {
+            statement.execute("INSERT INTO stock_check_record "
+                    + "(plan_id, product_id, system_stock, actual_stock, diff_quantity, status, create_time) "
+                    + "VALUES (1, 1, 10, 12, 2, 0, NOW()), (1, 1, 10, 12, 2, 0, NOW())");
+        }
+        assertThatThrownBy(() -> configuredFlyway(database).migrate())
+                .isInstanceOf(org.flywaydb.core.api.FlywayException.class);
+        assertThat(rowCount(database, "SELECT COUNT(*) FROM stock_check_record WHERE plan_id=1 AND product_id=1"))
+                .isEqualTo(2);
+    }
+
+    private void migrateTo(String database, String version) {
+        Flyway.configure().dataSource(jdbcUrl(database), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").target(version).load().migrate();
+    }
+
+    private int rowCount(String database, String query) throws Exception {
+        try (Connection connection = connectionTo(database); Statement statement = connection.createStatement();
+             ResultSet rows = statement.executeQuery(query)) {
+            assertThat(rows.next()).isTrue();
+            return rows.getInt(1);
         }
     }
 

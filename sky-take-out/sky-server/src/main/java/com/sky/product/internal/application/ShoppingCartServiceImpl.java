@@ -41,7 +41,7 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
         shoppingCart.setUserId(BaseContext.getCurrentId());
 
         //查询是否存在
-        List<ShoppingCart> list = shoppingCartMapper.selectlist(shoppingCart);
+        List<ShoppingCart> list = shoppingCartMapper.selectItemForUpdate(shoppingCart);
 
         // 校验库存是否充足
         if (shoppingCartDTO.getProductId() != null) {
@@ -102,7 +102,7 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
         // 设置用户id
         shoppingCart.setUserId(BaseContext.getCurrentId());
         //查询数量
-        List<ShoppingCart> list = shoppingCartMapper.selectlist(shoppingCart);
+        List<ShoppingCart> list = shoppingCartMapper.selectItemForUpdate(shoppingCart);
         if (list != null && list.size() > 0) {
             ShoppingCart cart = list.get(0);
             if (cart.getNumber() <= 1) {
@@ -127,7 +127,7 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
             shoppingCart.setProductId(orderDetail.getProductId());
             shoppingCart.setSpecInfo(orderDetail.getSpecInfo());
 
-            List<ShoppingCart> existing = shoppingCartMapper.selectlistForUpdate(shoppingCart);
+            List<ShoppingCart> existing = shoppingCartMapper.selectItemForUpdate(shoppingCart);
             if (existing != null && !existing.isEmpty()) {
                 ShoppingCart cart = existing.get(0);
                 cart.setNumber(cart.getNumber() + orderDetail.getNumber());

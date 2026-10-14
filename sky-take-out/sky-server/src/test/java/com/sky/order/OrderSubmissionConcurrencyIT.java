@@ -5,6 +5,7 @@ import com.sky.dto.OrdersSubmitDTO;
 import com.sky.dto.ShoppingCartDTO;
 import com.sky.exception.OrderBusinessException;
 import com.sky.entity.OrderDetail;
+import com.sky.mapper.ReportMapper;
 import com.sky.order.api.OrderApplicationService;
 import com.sky.order.internal.messaging.OrderEventPublisher;
 import com.sky.product.api.ShoppingCartService;
@@ -45,6 +46,7 @@ class OrderSubmissionConcurrencyIT extends IntegrationTestBase {
     @Autowired private OrderApplicationService orders;
     @Autowired private ShoppingCartService cart;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private ReportMapper reports;
     @Autowired private PlatformTransactionManager transactionManager;
     @MockBean private OrderEventPublisher events;
     @MockBean private ServerEndpointExporter serverEndpointExporter;
@@ -127,6 +129,66 @@ class OrderSubmissionConcurrencyIT extends IntegrationTestBase {
             assertThat(cart.list().get(0).getAmount()).isEqualByComparingTo("3.00");
             assertThat(cart.list().get(0).getNumber()).isEqualTo(2);
         });
+    }
+
+    @Test
+    void defaultSpecificationAdditionDoesNotChangeAnotherSpecification() {
+        jdbc.update("UPDATE shopping_cart SET spec_info='color:black' WHERE user_id=?", USER_ID);
+        asUser(() -> {
+            ShoppingCartDTO item = new ShoppingCartDTO();
+            item.setProductId(PRODUCT_ID);
+            cart.add(item);
+            assertThat(cart.list()).hasSize(2);
+        });
+        assertThat(jdbc.queryForObject("SELECT number FROM shopping_cart WHERE user_id=? AND spec_info='color:black'",
+                Integer.class, USER_ID)).isEqualTo(1);
+    }
+
+    @Test
+    void defaultSpecificationRemovalDoesNotDeleteAnotherSpecification() {
+        jdbc.update("UPDATE shopping_cart SET spec_info='color:black' WHERE user_id=?", USER_ID);
+        asUser(() -> {
+            ShoppingCartDTO item = new ShoppingCartDTO();
+            item.setProductId(PRODUCT_ID);
+            cart.sub(item);
+            assertThat(cart.list()).hasSize(1);
+        });
+    }
+
+    @Test
+    void defaultSpecificationRestorationDoesNotMergeIntoAnotherSpecification() {
+        jdbc.update("UPDATE shopping_cart SET spec_info='color:black' WHERE user_id=?", USER_ID);
+        asUser(() -> {
+            cart.restore(List.of(OrderDetail.builder().productId(PRODUCT_ID).number(2)
+                    .amount(new BigDecimal("2.50")).build()));
+            assertThat(cart.list()).hasSize(2);
+        });
+        assertThat(jdbc.queryForObject("SELECT number FROM shopping_cart WHERE user_id=? AND spec_info='color:black'",
+                Integer.class, USER_ID)).isEqualTo(1);
+    }
+
+    @Test
+    void emptyAndNullDefaultSpecificationsReferToTheSameCartItem() {
+        asUser(() -> {
+            ShoppingCartDTO item = new ShoppingCartDTO();
+            item.setProductId(PRODUCT_ID);
+            item.setSpecInfo("");
+            cart.add(item);
+            assertThat(cart.list()).hasSize(1);
+            assertThat(cart.list().get(0).getNumber()).isEqualTo(2);
+        });
+    }
+
+    @Test
+    void productSalesAmountIncludesQuantityForCompletedOrders() {
+        jdbc.update("INSERT INTO orders (id, number, user_id, status, pay_status, order_time, amount) "
+                + "VALUES (99002, 'sales-quantity-order', ?, 5, 1, NOW(), 300.00)", USER_ID);
+        jdbc.update("INSERT INTO order_detail (order_id, product_id, name, number, amount) "
+                + "VALUES (99002, ?, 'concurrent-cart-product', 3, 100.00)", PRODUCT_ID);
+        var sales = reports.selectProductSalesRanking(null, null, 100).stream()
+                .filter(item -> Long.valueOf(PRODUCT_ID).equals(item.getProductId())).findFirst().orElseThrow();
+        assertThat(sales.getSalesCount()).isEqualTo(3);
+        assertThat(sales.getSalesAmount()).isEqualByComparingTo("300.00");
     }
 
     private void runDuringSubmission(Runnable competingAction) throws Exception {

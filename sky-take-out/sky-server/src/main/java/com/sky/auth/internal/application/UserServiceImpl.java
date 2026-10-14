@@ -11,6 +11,7 @@ import com.sky.properties.WeChatProperties;
 import com.sky.utils.HttpClientUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DuplicateKeyException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -42,7 +43,13 @@ public class UserServiceImpl implements UserService {
                     .openid(openid)
                     .createTime(LocalDateTime.now())
                     .build();
-            userMapper.insert(user);
+            try {
+                userMapper.insert(user);
+            } catch (DuplicateKeyException duplicate) {
+                User existing = userMapper.selectByOpenid(openid);
+                if (existing == null) throw duplicate;
+                user = existing;
+            }
         }
 
         return user;

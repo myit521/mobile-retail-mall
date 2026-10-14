@@ -10,7 +10,7 @@
             od.name AS productName,
             od.image AS image,
             SUM(od.number) AS salesCount,
-            SUM(od.amount) AS salesAmount
+            SUM(od.amount * od.number) AS salesAmount
         FROM order_detail od
         INNER JOIN orders o ON od.order_id = o.id
         WHERE o.status = 5

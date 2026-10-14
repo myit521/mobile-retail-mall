@@ -191,7 +191,11 @@ export default {
       if (detectedModel.length < targetModel.length) {
         return false;
       }
-      return detectedModel.startsWith(targetModel + " ") || detectedModel.endsWith(" " + targetModel);
+      if (detectedModel.startsWith(targetModel + " ")) {
+        const suffix = detectedModel.slice(targetModel.length).trim();
+        return /^(device|phone|mobile)$/.test(suffix);
+      }
+      return detectedModel.endsWith(" " + targetModel);
     },
     tryMatchDetectedModel() {
       if (!this.normalizedDetectedModel || this.normalizedDetectedModel === "unknown") {
@@ -201,8 +205,10 @@ export default {
 
       const exactMatch = this.phoneModelList.find((item) => {
         const normalizedName = this.normalizeModelName(item.modelName);
-        return this.isStrictModelMatch(this.normalizedDetectedModel, normalizedName);
-      });
+        return this.normalizedDetectedModel === normalizedName;
+      }) || this.phoneModelList
+        .filter((item) => this.isStrictModelMatch(this.normalizedDetectedModel, this.normalizeModelName(item.modelName)))
+        .sort((a, b) => this.normalizeModelName(b.modelName).length - this.normalizeModelName(a.modelName).length)[0];
 
       if (exactMatch) {
         this.matchedPhoneModel = exactMatch;

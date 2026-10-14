@@ -44,10 +44,13 @@
         where id = #{id}
     </update>
 <!--    查询-->
-    <sql id="cartList">
+    <sql id="cartColumns">
         select c.id, c.name, c.image, c.user_id, c.product_id, c.spec_info, c.number,
                coalesce(p.price, c.amount) as amount, c.create_time
         from shopping_cart c left join product p on p.id = c.product_id
+    </sql>
+    <sql id="cartList">
+        <include refid="cartColumns"/>
         <where>
             <if test="userId != null">
                 and c.user_id = #{userId}
@@ -64,8 +67,18 @@
     <select id="selectlist" resultType="com.sky.entity.ShoppingCart">
         <include refid="cartList"/>
     </select>
-    <select id="selectlistForUpdate" resultType="com.sky.entity.ShoppingCart">
-        <include refid="cartList"/>
+    <select id="selectItemForUpdate" resultType="com.sky.entity.ShoppingCart">
+        <include refid="cartColumns"/>
+        where c.user_id = #{userId} and c.product_id = #{productId}
+        <choose>
+            <when test="specInfo != null and specInfo != ''">
+                and c.spec_info = #{specInfo}
+            </when>
+            <otherwise>
+                and (c.spec_info is null or c.spec_info = '')
+            </otherwise>
+        </choose>
+        order by c.create_time desc
         for update
     </select>
 </mapper>

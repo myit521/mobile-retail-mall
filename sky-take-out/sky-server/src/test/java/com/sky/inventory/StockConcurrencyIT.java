@@ -3,6 +3,7 @@ package com.sky.inventory;
 import com.sky.entity.OrderDetail;
 import com.sky.entity.Product;
 import com.sky.dto.StockAdjustDTO;
+import com.sky.dto.StockCheckRecordDTO;
 import com.sky.entity.StockCheckRecord;
 import com.sky.exception.BaseException;
 import com.sky.inventory.api.InventoryService;
@@ -10,6 +11,7 @@ import com.sky.inventory.internal.application.StockServiceImpl;
 import com.sky.inventory.internal.persistence.InventoryProductMapper;
 import com.sky.inventory.internal.persistence.StockLogMapper;
 import com.sky.inventory.internal.persistence.StockCheckRecordMapper;
+import com.sky.inventory.internal.persistence.StockCheckPlanMapper;
 import com.sky.support.IntegrationTestBase;
 import com.sky.observability.BusinessMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -66,7 +68,10 @@ class StockConcurrencyIT extends IntegrationTestBase {
         jdbc = new JdbcTemplate(dataSource);
         jdbc.update("DELETE FROM stock_log WHERE order_id BETWEEN 97001 AND 97010 OR product_id IN (?, ?)",
                 LAST_ITEM_PRODUCT_ID, RELEASE_PRODUCT_ID);
-        jdbc.update("DELETE FROM stock_check_record WHERE id = 97001");
+        jdbc.update("DELETE FROM stock_check_record WHERE product_id IN (?, ?)", LAST_ITEM_PRODUCT_ID, RELEASE_PRODUCT_ID);
+        jdbc.update("DELETE FROM stock_check_plan WHERE id = 97001");
+        jdbc.update("INSERT INTO stock_check_plan (id, plan_name, status, create_user, create_time) "
+                + "VALUES (97001, 'duplicate-check-test', 0, 1, NOW())");
         jdbc.update("DELETE FROM stock_operation WHERE order_id BETWEEN 97001 AND 97010");
         jdbc.update("DELETE FROM product WHERE id IN (?, ?)", LAST_ITEM_PRODUCT_ID, RELEASE_PRODUCT_ID);
         jdbc.update("INSERT INTO product (id, name, category_id, price, stock) VALUES (?, ?, 1, 1.00, 1)",
@@ -81,9 +86,12 @@ class StockConcurrencyIT extends IntegrationTestBase {
         configuration.addMapper(InventoryProductMapper.class);
         configuration.addMapper(com.sky.product.internal.persistence.ProductMapper.class);
         configuration.addMapper(StockCheckRecordMapper.class);
+        configuration.addMapper(StockCheckPlanMapper.class);
         factory.setConfiguration(configuration);
         factory.setMapperLocations(new ClassPathResource("mapper/StockLogMapper.xml"),
-                new ClassPathResource("mapper/ProductMapper.xml"));
+                new ClassPathResource("mapper/ProductMapper.xml"),
+                new ClassPathResource("mapper/StockCheckPlanMapper.xml"),
+                new ClassPathResource("mapper/StockCheckRecordMapper.xml"));
         SqlSessionFactory sessionFactory = factory.getObject();
         SqlSessionTemplate session = new SqlSessionTemplate(sessionFactory);
         productMapper = session.getMapper(InventoryProductMapper.class);
@@ -100,6 +108,7 @@ class StockConcurrencyIT extends IntegrationTestBase {
         ReflectionTestUtils.setField(stockService, "productMapper", productMapper);
         ReflectionTestUtils.setField(stockService, "stockLogMapper", stockLogMapper);
         ReflectionTestUtils.setField(stockService, "stockCheckRecordMapper", checkRecords);
+        ReflectionTestUtils.setField(stockService, "stockCheckPlanMapper", session.getMapper(StockCheckPlanMapper.class));
         meterRegistry = new SimpleMeterRegistry();
         ReflectionTestUtils.setField(stockService, "metrics", new BusinessMetrics(meterRegistry));
         ProxyFactory proxyFactory = new ProxyFactory(stockService);
@@ -284,6 +293,64 @@ class StockConcurrencyIT extends IntegrationTestBase {
                 .isInstanceOf(BaseException.class);
         assertThat(stockOf(RELEASE_PRODUCT_ID)).isZero();
         assertThat(operationCount(97004L)).isZero();
+    }
+
+    @Test
+    void repeatedCheckSubmissionIsRejectedBeforeAndAfterConfirmation() {
+        jdbc.update("UPDATE product SET stock = 10 WHERE id = ?", LAST_ITEM_PRODUCT_ID);
+        StockCheckRecordDTO request = checkRequest();
+        transaction.execute(status -> { stockService.submitCheckRecord(request); return null; });
+        assertThatThrownBy(() -> transaction.execute(status -> {
+            stockService.submitCheckRecord(request);
+            return null;
+        })).isInstanceOf(BaseException.class);
+        long recordId = jdbc.queryForObject("SELECT id FROM stock_check_record WHERE plan_id=97001 AND product_id=?",
+                Long.class, LAST_ITEM_PRODUCT_ID);
+        transaction.execute(status -> { stockService.confirmCheckRecord(recordId); return null; });
+        assertThatThrownBy(() -> transaction.execute(status -> {
+            stockService.submitCheckRecord(request);
+            return null;
+        })).isInstanceOf(BaseException.class);
+        assertThat(stockOf(LAST_ITEM_PRODUCT_ID)).isEqualTo(12);
+    }
+
+    @Test
+    void concurrentCheckSubmissionsCreateOneDifferenceRecord() throws Exception {
+        jdbc.update("UPDATE product SET stock = 10 WHERE id = ?", LAST_ITEM_PRODUCT_ID);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            java.util.concurrent.Callable<Boolean> submit = () -> {
+                ready.countDown();
+                await(start);
+                try {
+                    transaction.execute(status -> { stockService.submitCheckRecord(checkRequest()); return null; });
+                    return true;
+                } catch (BaseException duplicate) {
+                    return false;
+                }
+            };
+            Future<Boolean> first = executor.submit(submit);
+            Future<Boolean> second = executor.submit(submit);
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            assertThat(List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(true, false);
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM stock_check_record WHERE plan_id=97001 AND product_id=?",
+                Integer.class, LAST_ITEM_PRODUCT_ID)).isEqualTo(1);
+    }
+
+    private StockCheckRecordDTO checkRequest() {
+        StockCheckRecordDTO request = new StockCheckRecordDTO();
+        request.setPlanId(97001L);
+        request.setProductId(LAST_ITEM_PRODUCT_ID);
+        request.setActualStock(12);
+        return request;
     }
 
     @Test

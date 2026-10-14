@@ -46,7 +46,7 @@ public class EmployeeServiceImpl implements EmployeeService {
      * @return
      */
     public Employee login(EmployeeLoginDTO employeeLoginDTO) {
-        String username = employeeLoginDTO.getUsername();
+        String username = employeeLoginDTO.getUsername().replaceFirst(" +\\z", "");
         String password = employeeLoginDTO.getPassword();
 
         // 0、检查账号是否已被锁定（先检查，避免后续无效查询）
